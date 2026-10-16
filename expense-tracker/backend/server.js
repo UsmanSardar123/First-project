@@ -10,6 +10,15 @@ const expenseRoutes = require('./routes/expenseRoutes');
 
 const app = express();
 
+async function getAvailableIncome(excludeTransactionId) {
+  const filter = excludeTransactionId ? { _id: { $ne: excludeTransactionId } } : {};
+  const transactions = await Expense.find(filter).select('amount type').lean();
+  return transactions.reduce((balance, transaction) => {
+    const amount = Number(transaction.amount) || 0;
+    return balance + (transaction.type === 'income' ? amount : -amount);
+  }, 0);
+}
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -95,6 +104,15 @@ app.post('/api/expenses', async (req, res) => {
       paymentMethod,
     } = req.body || {};
 
+    if (type !== 'income') {
+      const availableIncome = await getAvailableIncome();
+      if (Number(amount) > availableIncome) {
+        return res.status(400).json({
+          message: `This expense exceeds your available income of ${Math.max(availableIncome, 0)}.`,
+        });
+      }
+    }
+
     const expense = await Expense.create({
       title,
       amount,
@@ -133,6 +151,15 @@ app.put('/api/expenses/:id', async (req, res) => {
       notes,
       paymentMethod,
     } = req.body || {};
+
+    if (type !== 'income') {
+      const availableIncome = await getAvailableIncome(req.params.id);
+      if (Number(amount) > availableIncome) {
+        return res.status(400).json({
+          message: `This expense exceeds your available income of ${Math.max(availableIncome, 0)}.`,
+        });
+      }
+    }
 
     const expense = await Expense.findByIdAndUpdate(
       req.params.id,
@@ -232,4 +259,4 @@ async function startServer() {
   }
 }
 
-startServer();s
+startServer();

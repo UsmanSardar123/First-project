@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -94,11 +93,11 @@ export default function ReportsScreen({ onBack, onTransactions, currency = 'PKR'
   const categoryColors = [COLORS.orange, COLORS.blue, COLORS.purple, COLORS.primary];
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back to dashboard" style={styles.backButton}><Text style={styles.backText}>‹</Text></Pressable>
+          <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back to previous screen" hitSlop={8} style={({ pressed }) => [styles.backButton, pressed && styles.backPressed]}><Text style={styles.backText}>‹</Text></Pressable>
           <View style={styles.headerCopy}>
             <Text style={styles.eyebrow}>YOUR MONEY</Text>
             <Text style={styles.heading}>Reports</Text>
@@ -144,15 +143,16 @@ export default function ReportsScreen({ onBack, onTransactions, currency = 'PKR'
           </>
         )}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
-  content: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 30 },
+  content: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 30 },
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
   backButton: { width: 44, height: 44, borderRadius: 14, backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.border, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  backPressed: { opacity: 0.65, transform: [{ scale: 0.97 }] },
   backText: { color: COLORS.text, fontSize: 30, lineHeight: 34 },
   headerCopy: { flex: 1 },
   eyebrow: { color: COLORS.primary, fontSize: 10, fontWeight: '800', letterSpacing: 1.2, marginBottom: 4 },

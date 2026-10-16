@@ -1,7 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
 import {
-  SafeAreaView,
   ScrollView,
   View,
   Text,
@@ -10,6 +9,7 @@ import {
   StatusBar,
 } from 'react-native';
 import { getExpenses } from '../api/expenseApi';
+import { formatCurrency } from '../constants/currency';
 
 const COLORS = {
   background: '#F6F8FB',
@@ -38,6 +38,12 @@ const getMonthName = () =>
     year: 'numeric',
   });
 
+const SPENDING_PERIODS = [
+  { value: 'daily', label: 'Daily', subtitle: 'Last 7 days' },
+  { value: 'weekly', label: 'Weekly', subtitle: 'Last 6 weeks' },
+  { value: 'monthly', label: 'Monthly', subtitle: 'Last 6 months' },
+];
+
 function SectionHeader({ title, action, onPress }) {
   return (
     <View style={styles.sectionHeader}>
@@ -56,7 +62,7 @@ function SectionHeader({ title, action, onPress }) {
   );
 }
 
-function SummaryCard({ title, amount, icon, color, background }) {
+function SummaryCard({ title, amount, icon, color, background, currency = 'PKR' }) {
   return (
     <View style={styles.summaryCard}>
       <View style={styles.summaryTop}>
@@ -73,43 +79,92 @@ function SummaryCard({ title, amount, icon, color, background }) {
       </View>
 
       <Text style={[styles.summaryAmount, { color }]} numberOfLines={1}>
-        {amount == null ? 'Not tracked' : `Rs. ${formatPKR(amount)}`}
+        {amount == null ? 'Not tracked' : formatCurrency(amount, currency)}
       </Text>
     </View>
   );
 }
 
 
-function SpendingChart({ weeklySpending }) {
+function buildSpendingSeries(transactions, period, now) {
+  const expenses = transactions.filter((item) => item.type !== 'income');
+  const sumBetween = (start, end) => expenses.reduce((sum, item) => {
+    const date = new Date(item.date);
+    return !Number.isNaN(date.getTime()) && date >= start && date < end ? sum + (Number(item.amount) || 0) : sum;
+  }, 0);
+
+  if (period === 'daily') {
+    return Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (6 - index));
+      const nextDate = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
+      return { label: date.toLocaleDateString('en-US', { weekday: 'short' }), amount: sumBetween(date, nextDate) };
+    });
+  }
+
+  if (period === 'weekly') {
+    const currentWeekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    currentWeekStart.setDate(currentWeekStart.getDate() - ((currentWeekStart.getDay() + 6) % 7));
+    return Array.from({ length: 6 }, (_, index) => {
+      const start = new Date(currentWeekStart);
+      start.setDate(start.getDate() - (5 - index) * 7);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 7);
+      return { label: start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), amount: sumBetween(start, end) };
+    });
+  }
+
+  return Array.from({ length: 6 }, (_, index) => {
+    const offset = index - 5;
+    const start = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+    const end = new Date(now.getFullYear(), now.getMonth() + offset + 1, 1);
+    return { label: start.toLocaleDateString('en-US', { month: 'short' }), amount: sumBetween(start, end) };
+  });
+}
+
+function SpendingChart({ transactions, period, onPeriodChange, currency, now }) {
+  const series = buildSpendingSeries(transactions, period, now);
   const maxAmount = Math.max(
-    ...weeklySpending.map((item) => item.amount),
+    ...series.map((item) => item.amount),
     1
   );
+  const total = series.reduce((sum, item) => sum + item.amount, 0);
+  const selectedPeriod = SPENDING_PERIODS.find((item) => item.value === period);
 
   return (
     <View style={styles.chartCard}>
       <View style={styles.chartHeading}>
         <View>
-          <Text style={styles.cardTitle}>Weekly spending</Text>
-          <Text style={styles.mutedText}>Your expenses this week</Text>
+          <Text style={styles.cardTitle}>Expense trend</Text>
+          <Text style={styles.mutedText}>{selectedPeriod.subtitle}</Text>
         </View>
 
         <View style={styles.chartBadge}>
-          <Text style={styles.chartBadgeText}>This week</Text>
+          <Text style={styles.chartBadgeText}>{formatCurrency(total, currency)}</Text>
         </View>
       </View>
 
+      <View style={styles.periodTabs} accessibilityRole="tablist">
+        {SPENDING_PERIODS.map((option) => {
+          const selected = option.value === period;
+          return (
+            <Pressable key={option.value} onPress={() => onPeriodChange(option.value)} accessibilityRole="tab" accessibilityState={{ selected }} style={[styles.periodTab, selected && styles.periodTabSelected]}>
+              <Text style={[styles.periodTabText, selected && styles.periodTabTextSelected]}>{option.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
       <View style={styles.chart}>
-        {weeklySpending.map((item) => {
+        {series.map((item, index) => {
           const height = Math.max(
             (item.amount / maxAmount) * 115,
             6
           );
 
-          const isHighest = item.amount === maxAmount;
+          const isHighest = item.amount === maxAmount && item.amount > 0;
 
           return (
-            <View key={item.day} style={styles.chartColumn}>
+            <View key={`${item.label}-${index}`} style={styles.chartColumn}>
               <View style={styles.barArea}>
                 <View
                   style={[
@@ -130,7 +185,7 @@ function SpendingChart({ weeklySpending }) {
                   isHighest && styles.chartDayActive,
                 ]}
               >
-                {item.day}
+                {item.label}
               </Text>
             </View>
           );
@@ -216,10 +271,11 @@ function TransactionItem({ item, isLast }) {
   );
 }
 
-export default function HomeScreen({ navigation }) {
+export default function HomeScreen({ navigation, currency = 'PKR' }) {
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [spendingPeriod, setSpendingPeriod] = useState('weekly');
 
   const loadExpenses = async () => {
     setLoading(true);
@@ -264,9 +320,10 @@ export default function HomeScreen({ navigation }) {
   const now = new Date();
   const monthExpenses = expenses.filter((item) => {
     const date = new Date(item.date);
-    return !Number.isNaN(date.getTime()) && date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+    return item.type !== 'income' && !Number.isNaN(date.getTime()) && date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
   });
   const monthlyExpenses = monthExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const totalIncome = expenses.reduce((sum, item) => item.type === 'income' ? sum + (Number(item.amount) || 0) : sum, 0);
   const categoryTotals = monthExpenses.reduce((totals, item) => {
     const name = item.category || 'General';
     totals[name] = (totals[name] || 0) + (Number(item.amount) || 0);
@@ -277,16 +334,10 @@ export default function HomeScreen({ navigation }) {
   const categories = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([name, amount], index) => ({
     name, amount, color: colors[index], icon: '•', percent: amount / maxCategoryAmount * 100,
   }));
-  const weeklySpending = Array.from({ length: 7 }, (_, index) => {
-    const day = new Date(now);
-    day.setDate(now.getDate() - (6 - index));
-    const amount = expenses.reduce((sum, item) => new Date(item.date).toDateString() === day.toDateString() ? sum + (Number(item.amount) || 0) : sum, 0);
-    return { day: day.toLocaleDateString('en-US', { weekday: 'short' }), amount };
-  });
   const transactions = [...expenses].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 4).map((item, index) => ({
     id: item._id || `${item.title}-${item.date}`, title: item.title || 'Expense', category: item.category || 'General',
     date: new Date(item.date).toLocaleDateString('en-PK', { month: 'short', day: 'numeric' }),
-    amount: -(Number(item.amount) || 0), icon: '•', color: ['#FFF1DC', '#E9EEFF', '#F4EAFE'][index % 3],
+    amount: item.type === 'income' ? (Number(item.amount) || 0) : -(Number(item.amount) || 0), icon: '•', color: ['#FFF1DC', '#E9EEFF', '#F4EAFE'][index % 3],
   }));
 
   const goTo = (screen) => {
@@ -294,7 +345,7 @@ export default function HomeScreen({ navigation }) {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.safeArea}>
       <StatusBar
         barStyle="dark-content"
         backgroundColor={COLORS.background}
@@ -365,11 +416,12 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.summaryRow}>
           <View style={styles.summaryColumn}>
             <SummaryCard
-              title="Income (not tracked)"
-              amount={null}
+              title="Total income"
+              amount={totalIncome}
               icon="↙"
               color={COLORS.primary}
               background={COLORS.primaryLight}
+              currency={currency}
             />
           </View>
 
@@ -380,6 +432,7 @@ export default function HomeScreen({ navigation }) {
               icon="↗"
               color={COLORS.red}
               background={COLORS.redLight}
+              currency={currency}
             />
           </View>
         </View>
@@ -413,7 +466,9 @@ export default function HomeScreen({ navigation }) {
 
           {loading ? <Text style={styles.stateText}>Loading expense data…</Text> : error ? (
             <View style={styles.stateCard}><Text style={styles.stateText}>{error}</Text><Pressable onPress={loadExpenses}><Text style={styles.sectionAction}>Tap to retry</Text></Pressable></View>
-          ) : expenses.length ? <SpendingChart weeklySpending={weeklySpending} /> : <View style={styles.stateCard}><Text style={styles.stateText}>Add an expense to see your spending trend.</Text></View>}
+          ) : expenses.some((item) => item.type !== 'income') ? (
+            <SpendingChart transactions={expenses} period={spendingPeriod} onPeriodChange={setSpendingPeriod} currency={currency} now={now} />
+          ) : <View style={styles.stateCard}><Text style={styles.stateText}>Add an expense to see your spending trend.</Text></View>}
         </View>
 
         {/* Categories */}
@@ -475,7 +530,7 @@ export default function HomeScreen({ navigation }) {
           Stay on top of your money, one day at a time.
         </Text>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -489,7 +544,7 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: 20,
-    paddingTop: 12,
+    paddingTop: 20,
     paddingBottom: 32,
   },
 
@@ -742,7 +797,25 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
     fontSize: 10,
     fontWeight: '700',
+    maxWidth: 125,
   },
+  periodTabs: {
+    flexDirection: 'row',
+    backgroundColor: '#F2F4F3',
+    borderRadius: 12,
+    padding: 3,
+    marginTop: 16,
+  },
+  periodTab: {
+    flex: 1,
+    minHeight: 36,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  periodTabSelected: { backgroundColor: COLORS.white },
+  periodTabText: { color: COLORS.secondary, fontSize: 11, fontWeight: '700' },
+  periodTabTextSelected: { color: COLORS.primary },
   chart: {
     flexDirection: 'row',
     justifyContent: 'space-between',

@@ -1,0 +1,33 @@
+export const EXPENSE_CATEGORIES = [
+  'Food',
+  'Breakfast',
+  'Lunch',
+  'Dinner',
+  'Groceries',
+  'Transport',
+  'Rent',
+  'WiFi',
+  'Tuition Fee',
+  'Shopping',
+  'Mobile',
+  'Bills & Utilities',
+  'Healthcare',
+  'Education',
+  'Entertainment',
+  'Travel',
+  'Personal Care',
+  'Household',
+  'Miscellaneous',
+  'Other',
+];
+
+export const INCOME_CATEGORIES = [
+  'Salary',
+  'Business',
+  'Freelance',
+  'Investment',
+  'Gift',
+  'Rental Income',
+  'Refund',
+  'Other',
+];

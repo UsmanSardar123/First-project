@@ -5,7 +5,6 @@ import {
   FlatList,
   Modal,
   Pressable,
-  SafeAreaView,
   Share,
   StatusBar,
   StyleSheet,
@@ -173,11 +172,11 @@ export default function TransactionsScreen({ onBack, onEdit, currency = 'PKR' })
   }, { income: 0, expenses: 0 }), [visibleTransactions]);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
       <View style={styles.content}>
         <View style={styles.header}>
-          <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back to dashboard" style={styles.backButton}>
+          <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back to previous screen" hitSlop={8} style={({ pressed }) => [styles.backButton, pressed && styles.backPressed]}>
             <Text style={styles.backText}>‹</Text>
           </Pressable>
           <View style={styles.headerCopy}>
@@ -306,7 +305,7 @@ export default function TransactionsScreen({ onBack, onEdit, currency = 'PKR' })
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -321,9 +320,10 @@ function DetailLine({ label, value }) {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
-  content: { flex: 1, paddingHorizontal: 20, paddingTop: 12 },
+  content: { flex: 1, paddingHorizontal: 20, paddingTop: 20 },
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
   backButton: { width: 44, height: 44, borderRadius: 14, backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.border, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  backPressed: { opacity: 0.65, transform: [{ scale: 0.97 }] },
   backText: { color: COLORS.text, fontSize: 30, lineHeight: 34 },
   headerCopy: { flex: 1 },
   eyebrow: { color: COLORS.primary, fontSize: 10, fontWeight: '800', letterSpacing: 1.2, marginBottom: 4 },

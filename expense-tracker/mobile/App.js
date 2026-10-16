@@ -1,38 +1,130 @@
+import React, { useCallback, useEffect, useState } from 'react';
+import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import HomeScreen from './src/screens/HomeScreen';
 import AddTransactionScreen from './src/screens/AddTransactionScreen';
 import TransactionsScreen from './src/screens/TransactionsScreen';
 import ReportsScreen from './src/screens/ReportsScreen';
 import BudgetsScreen from './src/screens/BudgetsScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
-import React, { useState } from 'react';
+import MenuScreen from './src/screens/MenuScreen';
+
+const TABS = [
+  { name: 'Home', label: 'Home', icon: '⌂' },
+  { name: 'Transactions', label: 'Transactions', icon: '↔' },
+  { name: 'Reports', label: 'Reports', icon: '▤' },
+  { name: 'Settings', label: 'Settings', icon: '⚙' },
+  { name: 'Menu', label: 'Menu', icon: '☰' },
+];
+const ROUTES = ['Home', 'Transactions', 'Reports', 'Settings', 'Menu', 'Budgets', 'AddTransaction', 'AddIncome', 'AddExpense', 'EditTransaction'];
 
 export default function App() {
-  const [screen, setScreen] = useState('Home');
+  const [history, setHistory] = useState(['Home']);
   const [currency, setCurrency] = useState('PKR');
   const [editingTransaction, setEditingTransaction] = useState(null);
-  if (screen === 'AddTransaction') {
-    return <AddTransactionScreen currency={currency} onBack={() => setScreen('Home')} onSaved={() => setScreen('Home')} />;
+  const screen = history[history.length - 1];
+
+  const openTab = useCallback((name) => {
+    if (!TABS.some((tab) => tab.name === name)) return;
+    setHistory([name]);
+    setEditingTransaction(null);
+  }, []);
+
+  const pushScreen = useCallback((name) => {
+    if (!ROUTES.includes(name)) return;
+    setHistory((current) => [...current, name]);
+  }, []);
+
+  const navigate = useCallback((name) => {
+    if (!ROUTES.includes(name)) return;
+    if (TABS.some((tab) => tab.name === name)) {
+      openTab(name);
+      return;
+    }
+    pushScreen(name);
+  }, [openTab, pushScreen]);
+
+  const goBack = useCallback(() => {
+    setEditingTransaction(null);
+    setHistory((current) => current.length > 1 ? current.slice(0, -1) : ['Home']);
+  }, []);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (screen === 'Home') return false;
+      goBack();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [goBack, screen]);
+
+  let content;
+  if (['AddTransaction', 'AddIncome', 'AddExpense', 'EditTransaction'].includes(screen)) {
+    const edit = screen === 'EditTransaction';
+    content = (
+      <AddTransactionScreen
+        key={edit ? editingTransaction?._id || 'edit' : screen}
+        transaction={edit ? editingTransaction : undefined}
+        initialType={screen === 'AddIncome' ? 'income' : 'expense'}
+        lockedType={screen !== 'AddTransaction'}
+        currency={currency}
+        onBack={goBack}
+        onSaved={goBack}
+      />
+    );
+  } else if (screen === 'Transactions') {
+    content = <TransactionsScreen currency={currency} onBack={goBack} onEdit={(transaction) => { setEditingTransaction(transaction); pushScreen('EditTransaction'); }} />;
+  } else if (screen === 'Reports') {
+    content = <ReportsScreen currency={currency} onBack={goBack} onTransactions={() => pushScreen('Transactions')} />;
+  } else if (screen === 'Budgets') {
+    content = <BudgetsScreen currency={currency} onBack={goBack} />;
+  } else if (screen === 'Settings') {
+    content = <SettingsScreen currency={currency} onCurrencyChange={setCurrency} onBack={goBack} />;
+  } else if (screen === 'Menu') {
+    content = <MenuScreen onBack={goBack} navigation={{ navigate: pushScreen }} />;
+  } else {
+    content = <HomeScreen currency={currency} navigation={{ navigate }} />;
   }
-  if (screen === 'AddIncome') {
-    return <AddTransactionScreen initialType="income" lockedType currency={currency} onBack={() => setScreen('Home')} onSaved={() => setScreen('Home')} />;
-  }
-  if (screen === 'AddExpense') {
-    return <AddTransactionScreen initialType="expense" lockedType currency={currency} onBack={() => setScreen('Home')} onSaved={() => setScreen('Home')} />;
-  }
-  if (screen === 'EditTransaction' && editingTransaction) {
-    return <AddTransactionScreen transaction={editingTransaction} lockedType currency={currency} onBack={() => { setEditingTransaction(null); setScreen('Transactions'); }} onSaved={() => { setEditingTransaction(null); setScreen('Transactions'); }} />;
-  }
-  if (screen === 'Transactions') {
-    return <TransactionsScreen currency={currency} onBack={() => setScreen('Home')} onEdit={(transaction) => { setEditingTransaction(transaction); setScreen('EditTransaction'); }} />;
-  }
-  if (screen === 'Reports') {
-    return <ReportsScreen currency={currency} onBack={() => setScreen('Home')} onTransactions={() => setScreen('Transactions')} />;
-  }
-  if (screen === 'Budgets') {
-    return <BudgetsScreen currency={currency} onBack={() => setScreen('Home')} />;
-  }
-  if (screen === 'Settings') {
-    return <SettingsScreen currency={currency} onCurrencyChange={setCurrency} onBack={() => setScreen('Home')} />;
-  }
-  return <HomeScreen currency={currency} navigation={{ navigate: (name) => ['AddTransaction', 'AddIncome', 'AddExpense', 'Transactions', 'Reports', 'Budgets', 'Settings'].includes(name) && setScreen(name) }} />;
+
+  return (
+    <SafeAreaProvider>
+      <SafeAreaView style={styles.app}>
+        <View style={styles.screen}>{content}</View>
+        <View style={styles.navbar} accessibilityRole="tablist">
+          {TABS.map((tab) => {
+            const selected = screen === tab.name
+              || (screen === 'EditTransaction' && tab.name === 'Transactions')
+              || (['AddTransaction', 'AddIncome', 'AddExpense'].includes(screen) && tab.name === 'Home')
+              || (screen === 'Budgets' && tab.name === 'Menu');
+            return (
+              <Pressable
+                key={tab.name}
+                onPress={() => openTab(tab.name)}
+                accessibilityRole="tab"
+                accessibilityLabel={tab.label}
+                accessibilityState={{ selected }}
+                hitSlop={4}
+                style={({ pressed }) => [styles.navItem, selected && styles.navItemActive, pressed && styles.navItemPressed]}
+              >
+                <Text style={[styles.navIcon, selected && styles.navActive]}>{tab.icon}</Text>
+                <Text style={[styles.navLabel, selected && styles.navActive]} numberOfLines={1}>{tab.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </SafeAreaView>
+    </SafeAreaProvider>
+  );
 }
+
+const styles = StyleSheet.create({
+  app: { flex: 1, backgroundColor: '#F6F8FB' },
+  screen: { flex: 1 },
+  navbar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#EDF0EE', paddingHorizontal: 5, paddingTop: 7, paddingBottom: 5 },
+  navItem: { flex: 1, minWidth: 0, minHeight: 52, borderRadius: 13, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 2 },
+  navItemActive: { backgroundColor: '#E5F7EE' },
+  navItemPressed: { opacity: 0.72 },
+  navIcon: { color: '#7C8983', fontSize: 19, lineHeight: 22, fontWeight: '700' },
+  navLabel: { color: '#7C8983', fontSize: 9, fontWeight: '700', marginTop: 2 },
+  navActive: { color: '#16A36A' },
+});
