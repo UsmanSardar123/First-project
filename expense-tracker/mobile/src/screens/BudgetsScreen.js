@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -60,7 +60,7 @@ export default function BudgetsScreen({ onBack, currency = 'PKR' }) {
   const [formError, setFormError] = useState('');
   const [notice, setNotice] = useState('');
 
-  const loadBudgets = useCallback(async () => {
+  const loadBudgets = async () => {
     setLoading(true);
     setError('');
     try {
@@ -73,9 +73,34 @@ export default function BudgetsScreen({ onBack, currency = 'PKR' }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  };
 
-  useEffect(() => { loadBudgets(); }, [loadBudgets]);
+  useEffect(() => {
+    let active = true;
+
+    const fetchBudgets = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const [budgetResult, expenseResult] = await Promise.all([getBudgets(), getExpenses()]);
+        if (!active) return;
+        if (!Array.isArray(budgetResult) || !Array.isArray(expenseResult)) throw new Error('Unexpected budget data received');
+        setBudgets(budgetResult);
+        setExpenses(expenseResult);
+      } catch (loadError) {
+        if (!active) return;
+        setError(loadError.message || 'Could not load budgets.');
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    void fetchBudgets();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const spentByCategory = useMemo(() => {
     const now = new Date();

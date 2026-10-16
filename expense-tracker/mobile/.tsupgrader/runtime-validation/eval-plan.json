@@ -1,0 +1,52 @@
+{
+  "generatedAt": "2026-10-15T13:12:16Z",
+  "generatedOnPlatform": "win32",
+  "projectType": "other",
+  "setup": [],
+  "assertions": [
+    {
+      "name": "android-bundle-export",
+      "kind": "process",
+      "command": "npx",
+      "args": [
+        "expo",
+        "export",
+        "--platform",
+        "android",
+        "--output-dir",
+        ".tsupgrader/runtime-validation/export"
+      ],
+      "verificationMethod": "exit-code",
+      "expected": "0",
+      "timeoutSeconds": 180
+    },
+    {
+      "name": "metro-status",
+      "kind": "http-probe",
+      "startCommand": "npx",
+      "startArgs": [
+        "expo",
+        "start",
+        "--localhost",
+        "--port",
+        "8083",
+        "--clear"
+      ],
+      "url": "http://localhost:8083/status",
+      "verificationMethod": "http-status",
+      "expected": "200",
+      "timeoutSeconds": 120
+    },
+    {
+      "name": "tests-pass",
+      "kind": "process",
+      "command": "npm",
+      "args": [
+        "test"
+      ],
+      "verificationMethod": "test-results",
+      "expected": "0",
+      "timeoutSeconds": 60
+    }
+  ]
+}

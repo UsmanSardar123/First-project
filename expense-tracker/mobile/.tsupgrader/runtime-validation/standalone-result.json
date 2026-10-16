@@ -1,0 +1,105 @@
+{
+  "planHash": "d4ba328c34381d26c2ab4f8a58682318cef91a431c3b124919a7b7ce2bf75a11",
+  "phase": "standalone",
+  "recordedAtUtc": "2026-10-15T14:16:44.6383377Z",
+  "retryCount": 1,
+  "resetBaseline": false,
+  "complete": true,
+  "result": {
+    "setupSucceeded": true,
+    "setupDurationMs": 0,
+    "setupFailureOutput": null,
+    "assertions": [
+      {
+        "name": "android-bundle-export",
+        "kind": "process",
+        "verificationMethod": "exit-code",
+        "passed": true,
+        "timedOut": false,
+        "skipped": false,
+        "skippedReason": null,
+        "exitCode": 0,
+        "outputSample": "env: load .env\r\nenv: export EXPO_PUBLIC_API_URL\r\nStarting Metro Bundler\r\n\r\nAndroid Bundled 20879ms index.js (587 modules)\r\n\r\n\u203A android bundles (1):\r\n_expo/static/js/android/index-9a318fa58f74d18d5903e8baf10fff3f.hbc (1.5MB)\r\n\r\n\u203A Files (1):\r\nmetadata.json (150B)\r\n\r\nExported: .tsupgrader/runtime-validation/export\r\n",
+        "durationMs": 24443
+      },
+      {
+        "name": "metro-status",
+        "kind": "http-probe",
+        "verificationMethod": "http-status",
+        "passed": true,
+        "timedOut": false,
+        "skipped": false,
+        "skippedReason": null,
+        "exitCode": null,
+        "outputSample": "HTTP 200\npackager-status:running",
+        "durationMs": 37
+      },
+      {
+        "name": "tests-pass",
+        "kind": "process",
+        "verificationMethod": "test-results",
+        "passed": true,
+        "timedOut": false,
+        "skipped": false,
+        "skippedReason": null,
+        "exitCode": 0,
+        "outputSample": "\r\n\u003E mobile@1.0.0 test\r\n\u003E node --test --test-reporter=tap\r\n\r\nTAP version 13\r\n# Subtest: EXPO_PUBLIC_API_URL targets the Android emulator expense endpoint\r\nok 1 - EXPO_PUBLIC_API_URL targets the Android emulator expense endpoint\r\n  ---\r\n  duration_ms: 1.5999\r\n  type: \u0027test\u0027\r\n  ...\r\n1..1\r\n# tests 1\r\n# suites 0\r\n# pass 1\r\n# fail 0\r\n# cancelled 0\r\n# skipped 0\r\n# todo 0\r\n# duration_ms 138.5609\r\n",
+        "durationMs": 937,
+        "testResults": {
+          "testFramework": "unknown",
+          "runnerDetectedFrom": "none",
+          "testsTotal": 0,
+          "testsPassed": 0,
+          "testsFailed": 0,
+          "testsSkipped": 0,
+          "parseFailed": true
+        }
+      }
+    ],
+    "executions": [
+      {
+        "source": "android-bundle-export",
+        "resolvedExecutable": "C:\\Program Files\\nodejs\\npx.CMD",
+        "args": [
+          "expo",
+          "export",
+          "--platform",
+          "android",
+          "--output-dir",
+          ".tsupgrader/runtime-validation/export"
+        ],
+        "cwd": "C:\\Users\\hp\\Desktop\\REact\\expense-tracker\\mobile",
+        "env": {},
+        "prependPath": [],
+        "platform": "win32"
+      },
+      {
+        "source": "metro-status",
+        "resolvedExecutable": "C:\\Program Files\\nodejs\\npx.CMD",
+        "args": [
+          "expo",
+          "start",
+          "--localhost",
+          "--port",
+          "8083",
+          "--clear"
+        ],
+        "cwd": "C:\\Users\\hp\\Desktop\\REact\\expense-tracker\\mobile",
+        "env": {},
+        "prependPath": [],
+        "platform": "win32"
+      },
+      {
+        "source": "tests-pass",
+        "resolvedExecutable": "C:\\Program Files\\nodejs\\npm.CMD",
+        "args": [
+          "test"
+        ],
+        "cwd": "C:\\Users\\hp\\Desktop\\REact\\expense-tracker\\mobile",
+        "env": {},
+        "prependPath": [],
+        "platform": "win32"
+      }
+    ]
+  }
+}

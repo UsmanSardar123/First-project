@@ -11,6 +11,6 @@ export function currencySymbol(code = 'PKR') {
 
 export function formatCurrency(amount, code = 'PKR') {
   const currency = CURRENCIES.find((item) => item.code === code) || CURRENCIES[0];
-  const number = new Intl.NumberFormat(currency.locale, { maximumFractionDigits: 0 }).format(Math.abs(Number(amount) || 0));
+  const number = new Intl.NumberFormat(currency.locale, { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(Math.abs(Number(amount) || 0));
   return `${currency.symbol} ${number}`;
 }

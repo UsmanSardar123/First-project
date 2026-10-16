@@ -1,5 +1,5 @@
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   SafeAreaView,
   ScrollView,
@@ -10,7 +10,6 @@ import {
   StatusBar,
 } from 'react-native';
 import { getExpenses } from '../api/expenseApi';
-import { formatCurrency } from '../constants/currency';
 
 const COLORS = {
   background: '#F6F8FB',
@@ -25,6 +24,12 @@ const COLORS = {
   blue: '#5479E8',
   orange: '#F2A541',
   purple: '#9670DC',
+};
+
+const formatPKR = (amount) => {
+  return new Intl.NumberFormat('en-PK', {
+    maximumFractionDigits: 0,
+  }).format(Math.abs(amount));
 };
 
 const getMonthName = () =>
@@ -51,7 +56,7 @@ function SectionHeader({ title, action, onPress }) {
   );
 }
 
-function SummaryCard({ title, amount, icon, color, background, currency }) {
+function SummaryCard({ title, amount, icon, color, background }) {
   return (
     <View style={styles.summaryCard}>
       <View style={styles.summaryTop}>
@@ -68,11 +73,12 @@ function SummaryCard({ title, amount, icon, color, background, currency }) {
       </View>
 
       <Text style={[styles.summaryAmount, { color }]} numberOfLines={1}>
-        {amount == null ? 'Not tracked' : formatCurrency(amount, currency)}
+        {amount == null ? 'Not tracked' : `Rs. ${formatPKR(amount)}`}
       </Text>
     </View>
   );
 }
+
 
 function SpendingChart({ weeklySpending }) {
   const maxAmount = Math.max(
@@ -134,7 +140,7 @@ function SpendingChart({ weeklySpending }) {
   );
 }
 
-function CategoryItem({ item, currency }) {
+function CategoryItem({ item }) {
   return (
     <View style={styles.categoryItem}>
       <View
@@ -150,7 +156,7 @@ function CategoryItem({ item, currency }) {
         <View style={styles.categoryTop}>
           <Text style={styles.categoryName}>{item.name}</Text>
           <Text style={styles.categoryAmount}>
-            {formatCurrency(item.amount, currency)}
+            Rs. {formatPKR(item.amount)}
           </Text>
         </View>
 
@@ -170,7 +176,7 @@ function CategoryItem({ item, currency }) {
   );
 }
 
-function TransactionItem({ item, isLast, currency }) {
+function TransactionItem({ item, isLast }) {
   const isIncome = item.amount > 0;
 
   return (
@@ -204,17 +210,18 @@ function TransactionItem({ item, isLast, currency }) {
           { color: isIncome ? COLORS.primary : COLORS.text },
         ]}
       >
-        {isIncome ? '+' : '-'}{formatCurrency(item.amount, currency)}
+        {isIncome ? '+' : '-'}Rs. {formatPKR(item.amount)}
       </Text>
     </View>
   );
 }
 
-export default function HomeScreen({ navigation, currency = 'PKR' }) {
+export default function HomeScreen({ navigation }) {
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const loadExpenses = useCallback(async () => {
+
+  const loadExpenses = async () => {
     setLoading(true);
     setError('');
     try {
@@ -226,17 +233,41 @@ export default function HomeScreen({ navigation, currency = 'PKR' }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  useEffect(() => {
+    let active = true;
+
+    const fetchExpenses = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const result = await getExpenses();
+        if (!active) return;
+        if (!Array.isArray(result)) throw new Error('Unexpected expense data received');
+        setExpenses(result);
+      } catch (loadError) {
+        if (!active) return;
+        setError(loadError.message || 'Could not load expenses');
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    void fetchExpenses();
+
+    return () => {
+      active = false;
+    };
   }, []);
-  useEffect(() => { loadExpenses(); }, [loadExpenses]);
 
   const now = new Date();
   const monthExpenses = expenses.filter((item) => {
     const date = new Date(item.date);
     return !Number.isNaN(date.getTime()) && date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
   });
-  const monthlyExpenses = monthExpenses.filter((item) => item.type !== 'income').reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-  const monthlyIncome = monthExpenses.filter((item) => item.type === 'income').reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-  const categoryTotals = monthExpenses.filter((item) => item.type !== 'income').reduce((totals, item) => {
+  const monthlyExpenses = monthExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const categoryTotals = monthExpenses.reduce((totals, item) => {
     const name = item.category || 'General';
     totals[name] = (totals[name] || 0) + (Number(item.amount) || 0);
     return totals;
@@ -249,13 +280,13 @@ export default function HomeScreen({ navigation, currency = 'PKR' }) {
   const weeklySpending = Array.from({ length: 7 }, (_, index) => {
     const day = new Date(now);
     day.setDate(now.getDate() - (6 - index));
-    const amount = expenses.reduce((sum, item) => item.type !== 'income' && new Date(item.date).toDateString() === day.toDateString() ? sum + (Number(item.amount) || 0) : sum, 0);
+    const amount = expenses.reduce((sum, item) => new Date(item.date).toDateString() === day.toDateString() ? sum + (Number(item.amount) || 0) : sum, 0);
     return { day: day.toLocaleDateString('en-US', { weekday: 'short' }), amount };
   });
   const transactions = [...expenses].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 4).map((item, index) => ({
     id: item._id || `${item.title}-${item.date}`, title: item.title || 'Expense', category: item.category || 'General',
     date: new Date(item.date).toLocaleDateString('en-PK', { month: 'short', day: 'numeric' }),
-    amount: item.type === 'income' ? Number(item.amount) || 0 : -(Number(item.amount) || 0), icon: '•', color: item.type === 'income' ? COLORS.primaryLight : ['#FFF1DC', '#E9EEFF', '#F4EAFE'][index % 3],
+    amount: -(Number(item.amount) || 0), icon: '•', color: ['#FFF1DC', '#E9EEFF', '#F4EAFE'][index % 3],
   }));
 
   const goTo = (screen) => {
@@ -297,7 +328,7 @@ export default function HomeScreen({ navigation, currency = 'PKR' }) {
             <View>
               <Text style={styles.balanceLabel}>Expenses this month</Text>
               <Text style={styles.balanceAmount}>
-                {formatCurrency(monthlyExpenses, currency)}
+                Rs. {formatPKR(monthlyExpenses)}
               </Text>
             </View>
 
@@ -334,12 +365,11 @@ export default function HomeScreen({ navigation, currency = 'PKR' }) {
         <View style={styles.summaryRow}>
           <View style={styles.summaryColumn}>
             <SummaryCard
-              title="Income this month"
-              amount={monthlyIncome}
+              title="Income (not tracked)"
+              amount={null}
               icon="↙"
               color={COLORS.primary}
               background={COLORS.primaryLight}
-              currency={currency}
             />
           </View>
 
@@ -350,7 +380,6 @@ export default function HomeScreen({ navigation, currency = 'PKR' }) {
               icon="↗"
               color={COLORS.red}
               background={COLORS.redLight}
-              currency={currency}
             />
           </View>
         </View>
@@ -397,7 +426,7 @@ export default function HomeScreen({ navigation, currency = 'PKR' }) {
 
           <View style={styles.categoryCard}>
             {loading ? <Text style={styles.stateText}>Loading categories…</Text> : categories.length ? categories.map((item) => (
-              <CategoryItem key={item.name} item={item} currency={currency} />
+              <CategoryItem key={item.name} item={item} />
             )) : <Text style={styles.stateText}>No expenses recorded this month.</Text>}
 
             <Pressable
@@ -427,7 +456,6 @@ export default function HomeScreen({ navigation, currency = 'PKR' }) {
                 key={item.id}
                 item={item}
                 isLast={index === transactions.length - 1}
-                currency={currency}
               />
             )) : <Text style={styles.stateText}>Your recent expenses will appear here.</Text>}
           </View>
@@ -800,6 +828,7 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 5,
   },
+  
   categoryFooter: {
     flexDirection: 'row',
     justifyContent: 'center',

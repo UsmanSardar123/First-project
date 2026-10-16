@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -35,7 +35,8 @@ export default function ReportsScreen({ onBack, onTransactions, currency = 'PKR'
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const loadRecords = useCallback(async () => {
+
+  const loadRecords = async () => {
     setLoading(true);
     setError('');
     try {
@@ -47,14 +48,39 @@ export default function ReportsScreen({ onBack, onTransactions, currency = 'PKR'
     } finally {
       setLoading(false);
     }
-  }, []);
-  useEffect(() => { loadRecords(); }, [loadRecords]);
+  };
 
-  const now = new Date();
+  useEffect(() => {
+    let active = true;
+
+    const fetchRecords = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const result = await getExpenses();
+        if (!active) return;
+        if (!Array.isArray(result)) throw new Error('Unexpected transaction data received');
+        setRecords(result);
+      } catch (loadError) {
+        if (!active) return;
+        setError(loadError.message || 'Could not load report data.');
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    void fetchRecords();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const now = useMemo(() => new Date(), []);
   const monthlyRecords = useMemo(() => records.filter((item) => {
     const date = new Date(item.date);
     return !Number.isNaN(date.getTime()) && date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
-  }), [records]);
+  }), [records, now]);
   const income = monthlyRecords.filter((item) => item.type === 'income').reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
   const expenses = monthlyRecords.filter((item) => item.type !== 'income').reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
   const net = income - expenses;
