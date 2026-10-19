@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { createExpense, getExpenses, updateExpense } from '../api/expenseApi';
 import { currencySymbol, formatCurrency } from '../constants/currency';
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../constants/categories';
+import { CATEGORY_ICONS, EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../constants/categories';
 
 const COLORS = {
   background: '#F6F8FB', white: '#FFFFFF', primary: '#16A36A',
@@ -164,6 +164,7 @@ export default function AddTransactionScreen({
                   accessibilityState={{ selected }}
                   style={[styles.categoryChip, selected && { backgroundColor: isIncome ? COLORS.primaryLight : COLORS.redLight, borderColor: accent }]}
                 >
+                  <Text style={styles.categoryChipIcon}>{CATEGORY_ICONS[option] || '🏷️'}</Text>
                   <Text style={[styles.categoryChipText, selected && { color: accent }]}>{option}</Text>
                 </Pressable>
               );
@@ -213,7 +214,8 @@ const styles = StyleSheet.create({
   formIntro: { color: COLORS.text, fontSize: 16, fontWeight: '800', marginBottom: 3 },
   label: { color: COLORS.text, fontSize: 13, fontWeight: '700', marginBottom: 8, marginTop: 15 },
   categoryOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  categoryChip: { minHeight: 38, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#FCFDFC', paddingHorizontal: 12, justifyContent: 'center' },
+  categoryChip: { minHeight: 38, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#FCFDFC', paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  categoryChipIcon: { fontSize: 13 },
   categoryChipText: { color: COLORS.secondary, fontSize: 12, fontWeight: '600' },
   optional: { color: COLORS.secondary, fontWeight: '400' },
   input: { minHeight: 48, borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, paddingHorizontal: 13, color: COLORS.text, fontSize: 14, backgroundColor: '#FCFDFC' },

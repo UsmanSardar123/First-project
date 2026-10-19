@@ -7,6 +7,7 @@ const COLORS = {
 };
 
 const ACTIONS = [
+  { title: 'Reports', description: 'Review monthly totals and spending by category', icon: '▥', screen: 'Reports' },
   { title: 'Budgets', description: 'Set monthly limits and track category spending', icon: '◎', screen: 'Budgets' },
   { title: 'Add income', description: 'Record salary or other money received', icon: '↗', screen: 'AddIncome' },
   { title: 'Add expense', description: 'Record a purchase or bill', icon: '↘', screen: 'AddExpense' },

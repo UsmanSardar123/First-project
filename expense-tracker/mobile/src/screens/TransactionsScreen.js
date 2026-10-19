@@ -119,9 +119,9 @@ export default function TransactionsScreen({ onBack, onEdit, currency = 'PKR' })
     setDeleteError('');
     try {
       await deleteExpense(selected._id);
+      setTransactions((current) => current.filter((item) => item._id !== selected._id));
       setConfirmDelete(false);
       setSelected(null);
-      await transactions();
     } catch (deleteRequestError) {
       setDeleteError(deleteRequestError.message || 'Could not delete this transaction.');
     } finally {

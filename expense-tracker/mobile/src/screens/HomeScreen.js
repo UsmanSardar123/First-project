@@ -6,6 +6,7 @@ import {
   Text,
   StyleSheet,
   Pressable,
+  RefreshControl,
   StatusBar,
 } from 'react-native';
 import { getExpenses } from '../api/expenseApi';
@@ -21,27 +22,24 @@ const COLORS = {
   border: '#EDF0EE',
   red: '#E65B64',
   redLight: '#FCECEE',
+  amber: '#C98218',
   blue: '#5479E8',
   orange: '#F2A541',
   purple: '#9670DC',
 };
 
-const formatPKR = (amount) => {
-  return new Intl.NumberFormat('en-PK', {
-    maximumFractionDigits: 0,
-  }).format(Math.abs(amount));
-};
-
-const getMonthName = () =>
-  new Date().toLocaleDateString('en-US', {
-    month: 'long',
-    year: 'numeric',
-  });
-
 const SPENDING_PERIODS = [
-  { value: 'daily', label: 'Daily', subtitle: 'Last 7 days' },
-  { value: 'weekly', label: 'Weekly', subtitle: 'Last 6 weeks' },
-  { value: 'monthly', label: 'Monthly', subtitle: 'Last 6 months' },
+  { value: 'daily', label: 'Daily', icon: '🕒', subtitle: 'Expenses by time of day' },
+  { value: 'weekly', label: 'Weekly', icon: '📅', subtitle: 'Last 6 weeks' },
+  { value: 'monthly', label: 'Monthly', icon: '🗓️', subtitle: 'Last 6 months' },
+];
+
+const DAY_PARTS = [
+  { label: '12–6a', title: 'Overnight', icon: '🌙', from: 0, to: 6 },
+  { label: '6a–12p', title: 'Morning', icon: '🌅', from: 6, to: 12 },
+  { label: '12–5p', title: 'Afternoon', icon: '☀️', from: 12, to: 17 },
+  { label: '5–9p', title: 'Evening', icon: '🌇', from: 17, to: 21 },
+  { label: '9p–12a', title: 'Late night', icon: '🌙', from: 21, to: 24 },
 ];
 
 function SectionHeader({ title, action, onPress }) {
@@ -86,7 +84,7 @@ function SummaryCard({ title, amount, icon, color, background, currency = 'PKR' 
 }
 
 
-function buildSpendingSeries(transactions, period, now) {
+function buildSpendingSeries(transactions, period, now, selectedDay) {
   const expenses = transactions.filter((item) => item.type !== 'income');
   const sumBetween = (start, end) => expenses.reduce((sum, item) => {
     const date = new Date(item.date);
@@ -94,10 +92,17 @@ function buildSpendingSeries(transactions, period, now) {
   }, 0);
 
   if (period === 'daily') {
-    return Array.from({ length: 7 }, (_, index) => {
-      const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (6 - index));
-      const nextDate = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
-      return { label: date.toLocaleDateString('en-US', { weekday: 'short' }), amount: sumBetween(date, nextDate) };
+    const start = new Date(selectedDay.getFullYear(), selectedDay.getMonth(), selectedDay.getDate());
+    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1);
+    return DAY_PARTS.map((part) => {
+      const amount = expenses.reduce((sum, item) => {
+        const transactionDate = new Date(item.date);
+        if (Number.isNaN(transactionDate.getTime()) || transactionDate < start || transactionDate >= end) return sum;
+        const recordedAt = new Date(item.createdAt || item.date);
+        const hour = Number.isNaN(recordedAt.getTime()) ? transactionDate.getHours() : recordedAt.getHours();
+        return hour >= part.from && hour < part.to ? sum + (Number(item.amount) || 0) : sum;
+      }, 0);
+      return { label: part.label, title: part.title, icon: part.icon, amount };
     });
   }
 
@@ -109,7 +114,8 @@ function buildSpendingSeries(transactions, period, now) {
       start.setDate(start.getDate() - (5 - index) * 7);
       const end = new Date(start);
       end.setDate(end.getDate() + 7);
-      return { label: start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), amount: sumBetween(start, end) };
+      const startLabel = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return { label: startLabel, title: `Week of ${startLabel}`, amount: sumBetween(start, end) };
     });
   }
 
@@ -117,18 +123,26 @@ function buildSpendingSeries(transactions, period, now) {
     const offset = index - 5;
     const start = new Date(now.getFullYear(), now.getMonth() + offset, 1);
     const end = new Date(now.getFullYear(), now.getMonth() + offset + 1, 1);
-    return { label: start.toLocaleDateString('en-US', { month: 'short' }), amount: sumBetween(start, end) };
+    return {
+      label: start.toLocaleDateString('en-US', { month: 'short' }),
+      title: start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+      amount: sumBetween(start, end),
+    };
   });
 }
 
-function SpendingChart({ transactions, period, onPeriodChange, currency, now }) {
-  const series = buildSpendingSeries(transactions, period, now);
+function SpendingChart({ transactions, period, onPeriodChange, currency, now, selectedDay, onSelectedDayChange }) {
+  const series = buildSpendingSeries(transactions, period, now, selectedDay);
   const maxAmount = Math.max(
     ...series.map((item) => item.amount),
     1
   );
   const total = series.reduce((sum, item) => sum + item.amount, 0);
   const selectedPeriod = SPENDING_PERIODS.find((item) => item.value === period);
+  const isSelectedToday = selectedDay.toDateString() === now.toDateString();
+  const selectedDayLabel = isSelectedToday
+    ? 'Today'
+    : selectedDay.toLocaleDateString('en-PK', { day: 'numeric', month: 'long', year: 'numeric' });
 
   return (
     <View style={styles.chartCard}>
@@ -148,11 +162,24 @@ function SpendingChart({ transactions, period, onPeriodChange, currency, now }) 
           const selected = option.value === period;
           return (
             <Pressable key={option.value} onPress={() => onPeriodChange(option.value)} accessibilityRole="tab" accessibilityState={{ selected }} style={[styles.periodTab, selected && styles.periodTabSelected]}>
+              <Text style={[styles.periodTabIcon, selected && styles.periodTabTextSelected]}>{option.icon}</Text>
               <Text style={[styles.periodTabText, selected && styles.periodTabTextSelected]}>{option.label}</Text>
             </Pressable>
           );
         })}
       </View>
+
+      {period === 'daily' ? (
+        <View style={styles.dateNavigator}>
+          <Pressable onPress={() => onSelectedDayChange((current) => new Date(current.getFullYear(), current.getMonth(), current.getDate() - 1))} accessibilityRole="button" accessibilityLabel="Previous day" hitSlop={8} style={styles.dateArrow}>
+            <Text style={styles.dateArrowText}>‹</Text>
+          </Pressable>
+          <Text style={styles.selectedDate}>{selectedDayLabel}</Text>
+          <Pressable onPress={() => onSelectedDayChange((current) => new Date(current.getFullYear(), current.getMonth(), current.getDate() + 1))} accessibilityRole="button" accessibilityLabel="Next day" disabled={isSelectedToday} hitSlop={8} style={[styles.dateArrow, isSelectedToday && styles.dateArrowDisabled]}>
+            <Text style={styles.dateArrowText}>›</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       <View style={styles.chart}>
         {series.map((item, index) => {
@@ -166,6 +193,7 @@ function SpendingChart({ transactions, period, onPeriodChange, currency, now }) 
           return (
             <View key={`${item.label}-${index}`} style={styles.chartColumn}>
               <View style={styles.barArea}>
+                {period === 'daily' ? <Text style={styles.timeIcon}>{item.icon}</Text> : null}
                 <View
                   style={[
                     styles.bar,
@@ -191,82 +219,17 @@ function SpendingChart({ transactions, period, onPeriodChange, currency, now }) 
           );
         })}
       </View>
-    </View>
-  );
-}
-
-function CategoryItem({ item }) {
-  return (
-    <View style={styles.categoryItem}>
-      <View
-        style={[
-          styles.categoryIcon,
-          { backgroundColor: `${item.color}18` },
-        ]}
-      >
-        <Text style={styles.categoryEmoji}>{item.icon}</Text>
+      <View style={styles.seriesBreakdown}>
+        {series.map((item, index) => (
+          <View key={`${item.title || item.label}-value-${index}`} style={styles.seriesRow}>
+            <View style={styles.seriesNameWrap}>
+              {period === 'daily' ? <Text style={styles.seriesIcon}>{item.icon}</Text> : null}
+              <Text style={styles.seriesName}>{period === 'daily' ? `${item.title} · ${item.label}` : item.title || item.label}</Text>
+            </View>
+            <Text style={styles.seriesAmount}>{formatCurrency(item.amount, currency)}</Text>
+          </View>
+        ))}
       </View>
-
-      <View style={styles.categoryInfo}>
-        <View style={styles.categoryTop}>
-          <Text style={styles.categoryName}>{item.name}</Text>
-          <Text style={styles.categoryAmount}>
-            Rs. {formatPKR(item.amount)}
-          </Text>
-        </View>
-
-        <View style={styles.progressTrack}>
-          <View
-            style={[
-              styles.progressFill,
-              {
-                width: `${Math.min(item.percent, 100)}%`,
-                backgroundColor: item.color,
-              },
-            ]}
-          />
-        </View>
-      </View>
-    </View>
-  );
-}
-
-function TransactionItem({ item, isLast }) {
-  const isIncome = item.amount > 0;
-
-  return (
-    <View
-      style={[
-        styles.transactionItem,
-        !isLast && styles.transactionDivider,
-      ]}
-    >
-      <View
-        style={[
-          styles.transactionIcon,
-          { backgroundColor: item.color },
-        ]}
-      >
-        <Text style={styles.transactionEmoji}>{item.icon}</Text>
-      </View>
-
-      <View style={styles.transactionInfo}>
-        <Text style={styles.transactionTitle} numberOfLines={1}>
-          {item.title}
-        </Text>
-        <Text style={styles.transactionMeta}>
-          {item.category} · {item.date}
-        </Text>
-      </View>
-
-      <Text
-        style={[
-          styles.transactionAmount,
-          { color: isIncome ? COLORS.primary : COLORS.text },
-        ]}
-      >
-        {isIncome ? '+' : '-'}Rs. {formatPKR(item.amount)}
-      </Text>
     </View>
   );
 }
@@ -274,11 +237,13 @@ function TransactionItem({ item, isLast }) {
 export default function HomeScreen({ navigation, currency = 'PKR' }) {
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [spendingPeriod, setSpendingPeriod] = useState('weekly');
+  const [selectedDay, setSelectedDay] = useState(() => new Date());
 
   const loadExpenses = async () => {
-    setLoading(true);
+    setRefreshing(true);
     setError('');
     try {
       const result = await getExpenses();
@@ -287,7 +252,7 @@ export default function HomeScreen({ navigation, currency = 'PKR' }) {
     } catch (loadError) {
       setError(loadError.message || 'Could not load expenses');
     } finally {
-      setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -324,22 +289,20 @@ export default function HomeScreen({ navigation, currency = 'PKR' }) {
   });
   const monthlyExpenses = monthExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
   const totalIncome = expenses.reduce((sum, item) => item.type === 'income' ? sum + (Number(item.amount) || 0) : sum, 0);
-  const categoryTotals = monthExpenses.reduce((totals, item) => {
-    const name = item.category || 'General';
-    totals[name] = (totals[name] || 0) + (Number(item.amount) || 0);
-    return totals;
-  }, {});
-  const maxCategoryAmount = Math.max(...Object.values(categoryTotals), 1);
-  const colors = [COLORS.orange, COLORS.blue, COLORS.purple];
-  const categories = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([name, amount], index) => ({
-    name, amount, color: colors[index], icon: '•', percent: amount / maxCategoryAmount * 100,
-  }));
-  const transactions = [...expenses].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 4).map((item, index) => ({
-    id: item._id || `${item.title}-${item.date}`, title: item.title || 'Expense', category: item.category || 'General',
-    date: new Date(item.date).toLocaleDateString('en-PK', { month: 'short', day: 'numeric' }),
-    amount: item.type === 'income' ? (Number(item.amount) || 0) : -(Number(item.amount) || 0), icon: '•', color: ['#FFF1DC', '#E9EEFF', '#F4EAFE'][index % 3],
-  }));
-
+  const totalExpenses = expenses.reduce((sum, item) => item.type !== 'income' ? sum + (Number(item.amount) || 0) : sum, 0);
+  const availableIncome = totalIncome - totalExpenses;
+  const remainingRatio = totalIncome > 0 ? availableIncome / totalIncome : 0;
+  const balanceLevel = remainingRatio <= 0.2 ? 'danger' : remainingRatio <= 0.4 ? 'warning' : 'healthy';
+  const balanceColor = balanceLevel === 'danger' ? COLORS.red : balanceLevel === 'warning' ? COLORS.amber : COLORS.primary;
+  const balanceStatus = totalIncome <= 0
+    ? 'No income recorded'
+    : availableIncome < 0
+      ? 'Expenses exceed income'
+      : balanceLevel === 'danger'
+        ? 'Danger · 20% or less left'
+        : balanceLevel === 'warning'
+          ? 'Caution · under 40% left'
+          : 'Healthy balance';
   const goTo = (screen) => {
     navigation?.navigate?.(screen);
   };
@@ -355,6 +318,7 @@ export default function HomeScreen({ navigation, currency = 'PKR' }) {
         style={styles.container}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={loadExpenses} tintColor={COLORS.primary} colors={[COLORS.primary]} />}
       >
         {/* Header */}
         <View style={styles.header}>
@@ -374,12 +338,12 @@ export default function HomeScreen({ navigation, currency = 'PKR' }) {
         </View>
 
         {/* Balance card */}
-        <View style={styles.balanceCard}>
+        <View style={[styles.balanceCard, { backgroundColor: balanceColor }]}>
           <View style={styles.balanceTop}>
             <View>
-              <Text style={styles.balanceLabel}>Expenses this month</Text>
-              <Text style={styles.balanceAmount}>
-                Rs. {formatPKR(monthlyExpenses)}
+              <Text style={styles.balanceLabel}>Available to spend</Text>
+              <Text style={styles.balanceAmount} numberOfLines={1}>
+                {availableIncome < 0 ? '−' : ''}{formatCurrency(Math.abs(availableIncome), currency)}
               </Text>
             </View>
 
@@ -392,12 +356,8 @@ export default function HomeScreen({ navigation, currency = 'PKR' }) {
 
           <View style={styles.balanceFooter}>
             <View>
-              <Text style={styles.balanceFooterLabel}>
-                Monthly expenses
-              </Text>
-              <Text style={styles.balanceFooterValue}>
-                {getMonthName()}
-              </Text>
+              <Text style={styles.balanceFooterLabel}>Income status</Text>
+              <Text style={styles.balanceFooterValue} numberOfLines={1}>{balanceStatus}</Text>
             </View>
 
             <Pressable
@@ -467,68 +427,10 @@ export default function HomeScreen({ navigation, currency = 'PKR' }) {
           {loading ? <Text style={styles.stateText}>Loading expense data…</Text> : error ? (
             <View style={styles.stateCard}><Text style={styles.stateText}>{error}</Text><Pressable onPress={loadExpenses}><Text style={styles.sectionAction}>Tap to retry</Text></Pressable></View>
           ) : expenses.some((item) => item.type !== 'income') ? (
-            <SpendingChart transactions={expenses} period={spendingPeriod} onPeriodChange={setSpendingPeriod} currency={currency} now={now} />
+            <SpendingChart transactions={expenses} period={spendingPeriod} onPeriodChange={setSpendingPeriod} currency={currency} now={now} selectedDay={selectedDay} onSelectedDayChange={setSelectedDay} />
           ) : <View style={styles.stateCard}><Text style={styles.stateText}>Add an expense to see your spending trend.</Text></View>}
         </View>
 
-        {/* Categories */}
-        <View style={styles.section}>
-          <SectionHeader
-            title="Top spending categories"
-            action="See all"
-            onPress={() => goTo('Reports')}
-          />
-
-          <View style={styles.categoryCard}>
-            {loading ? <Text style={styles.stateText}>Loading categories…</Text> : categories.length ? categories.map((item) => (
-              <CategoryItem key={item.name} item={item} />
-            )) : <Text style={styles.stateText}>No expenses recorded this month.</Text>}
-
-            <Pressable
-              style={styles.categoryFooter}
-              onPress={() => goTo('Budgets')}
-              accessibilityRole="button"
-            >
-              <Text style={styles.categoryFooterText}>
-                Manage your budgets
-              </Text>
-              <Text style={styles.categoryFooterArrow}>→</Text>
-            </Pressable>
-          </View>
-        </View>
-
-        {/* Recent transactions */}
-        <View style={styles.section}>
-          <SectionHeader
-            title="Recent transactions"
-            action="See all"
-            onPress={() => goTo('Transactions')}
-          />
-
-          <View style={styles.transactionsCard}>
-            {loading ? <Text style={styles.stateText}>Loading transactions…</Text> : transactions.length ? transactions.map((item, index) => (
-              <TransactionItem
-                key={item.id}
-                item={item}
-                isLast={index === transactions.length - 1}
-              />
-            )) : <Text style={styles.stateText}>Your recent expenses will appear here.</Text>}
-          </View>
-
-          <Pressable
-            style={styles.allTransactionsButton}
-            onPress={() => goTo('Transactions')}
-            accessibilityRole="button"
-          >
-            <Text style={styles.allTransactionsText}>
-              View all transactions →
-            </Text>
-          </Pressable>
-        </View>
-
-        <Text style={styles.footerText}>
-          Stay on top of your money, one day at a time.
-        </Text>
       </ScrollView>
     </View>
   );
@@ -808,14 +710,21 @@ const styles = StyleSheet.create({
   },
   periodTab: {
     flex: 1,
-    minHeight: 36,
+    minHeight: 46,
     borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 1,
   },
+  periodTabIcon: { color: COLORS.secondary, fontSize: 13, lineHeight: 16 },
   periodTabSelected: { backgroundColor: COLORS.white },
   periodTabText: { color: COLORS.secondary, fontSize: 11, fontWeight: '700' },
   periodTabTextSelected: { color: COLORS.primary },
+  dateNavigator: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 11, paddingHorizontal: 3 },
+  dateArrow: { width: 36, height: 34, borderRadius: 10, backgroundColor: '#F2F4F3', alignItems: 'center', justifyContent: 'center' },
+  dateArrowDisabled: { opacity: 0.35 },
+  dateArrowText: { color: COLORS.text, fontSize: 22, lineHeight: 26, fontWeight: '700' },
+  selectedDate: { color: COLORS.text, fontSize: 12, fontWeight: '800' },
   chart: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -827,10 +736,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   barArea: {
+    position: 'relative',
     height: 120,
     justifyContent: 'flex-end',
     alignItems: 'center',
   },
+  timeIcon: { position: 'absolute', top: 2, fontSize: 14 },
   bar: {
     width: 19,
     borderRadius: 7,
@@ -844,6 +755,12 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
     fontWeight: '800',
   },
+  seriesBreakdown: { borderTopWidth: 1, borderTopColor: COLORS.border, marginTop: 15, paddingTop: 8 },
+  seriesRow: { minHeight: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  seriesNameWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 7 },
+  seriesIcon: { fontSize: 13 },
+  seriesName: { color: COLORS.secondary, fontSize: 10, flexShrink: 1 },
+  seriesAmount: { color: COLORS.text, fontSize: 11, fontWeight: '700' },
 
   // Categories
   categoryCard: {

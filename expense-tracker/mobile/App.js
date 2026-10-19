@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { AuthProvider, useAuth } from './src/context/AuthContext';
 import HomeScreen from './src/screens/HomeScreen';
 import AddTransactionScreen from './src/screens/AddTransactionScreen';
 import TransactionsScreen from './src/screens/TransactionsScreen';
@@ -11,14 +12,25 @@ import MenuScreen from './src/screens/MenuScreen';
 
 const TABS = [
   { name: 'Home', label: 'Home', icon: '⌂' },
-  { name: 'Transactions', label: 'Transactions', icon: '↔' },
-  { name: 'Reports', label: 'Reports', icon: '▤' },
-  { name: 'Settings', label: 'Settings', icon: '⚙' },
   { name: 'Menu', label: 'Menu', icon: '☰' },
+  { name: 'Transactions', label: 'Transactions', icon: '▤' },
+  { name: 'Reports', label: 'Reports', icon: '▥' },
+  { name: 'Settings', label: 'Settings', icon: '⚙' },
 ];
 const ROUTES = ['Home', 'Transactions', 'Reports', 'Settings', 'Menu', 'Budgets', 'AddTransaction', 'AddIncome', 'AddExpense', 'EditTransaction'];
 
 export default function App() {
+  return (
+    <AuthProvider>
+      <SafeAreaProvider>
+        <AuthenticatedApp />
+      </SafeAreaProvider>
+    </AuthProvider>
+  );
+}
+
+function AuthenticatedApp() {
+  const { user, loading, initializationError } = useAuth();
   const [history, setHistory] = useState(['Home']);
   const [currency, setCurrency] = useState('PKR');
   const [editingTransaction, setEditingTransaction] = useState(null);
@@ -50,13 +62,36 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!user || loading) return undefined;
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       if (screen === 'Home') return false;
       goBack();
       return true;
     });
     return () => subscription.remove();
-  }, [goBack, screen]);
+  }, [goBack, loading, screen, user]);
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.app} edges={['top', 'right', 'bottom', 'left']}>
+        <View style={styles.gate}>
+          <ActivityIndicator size="large" color="#16A36A" />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!user) {
+    return (
+      <SafeAreaView style={styles.app} edges={['top', 'right', 'bottom', 'left']}>
+        <View style={styles.gate}>
+          <Text style={styles.gateText}>
+            {initializationError || 'Sign in to access your expenses.'}
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   let content;
   if (['AddTransaction', 'AddIncome', 'AddExpense', 'EditTransaction'].includes(screen)) {
@@ -87,38 +122,38 @@ export default function App() {
   }
 
   return (
-    <SafeAreaProvider>
-      <SafeAreaView style={styles.app}>
-        <View style={styles.screen}>{content}</View>
-        <View style={styles.navbar} accessibilityRole="tablist">
-          {TABS.map((tab) => {
-            const selected = screen === tab.name
-              || (screen === 'EditTransaction' && tab.name === 'Transactions')
-              || (['AddTransaction', 'AddIncome', 'AddExpense'].includes(screen) && tab.name === 'Home')
-              || (screen === 'Budgets' && tab.name === 'Menu');
-            return (
-              <Pressable
-                key={tab.name}
-                onPress={() => openTab(tab.name)}
-                accessibilityRole="tab"
-                accessibilityLabel={tab.label}
-                accessibilityState={{ selected }}
-                hitSlop={4}
-                style={({ pressed }) => [styles.navItem, selected && styles.navItemActive, pressed && styles.navItemPressed]}
-              >
-                <Text style={[styles.navIcon, selected && styles.navActive]}>{tab.icon}</Text>
-                <Text style={[styles.navLabel, selected && styles.navActive]} numberOfLines={1}>{tab.label}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </SafeAreaView>
-    </SafeAreaProvider>
+    <SafeAreaView style={styles.app} edges={['top', 'right', 'bottom', 'left']}>
+      <View style={styles.screen}>{content}</View>
+      <View style={styles.navbar} accessibilityRole="tablist">
+        {TABS.map((tab) => {
+          const selected = screen === tab.name
+            || (screen === 'EditTransaction' && tab.name === 'Transactions')
+            || (['AddTransaction', 'AddIncome', 'AddExpense'].includes(screen) && tab.name === 'Home')
+            || (screen === 'Budgets' && tab.name === 'Menu');
+          return (
+            <Pressable
+              key={tab.name}
+              onPress={() => openTab(tab.name)}
+              accessibilityRole="tab"
+              accessibilityLabel={tab.label}
+              accessibilityState={{ selected }}
+              hitSlop={4}
+              style={({ pressed }) => [styles.navItem, selected && styles.navItemActive, pressed && styles.navItemPressed]}
+            >
+              <Text style={[styles.navIcon, selected && styles.navActive]}>{tab.icon}</Text>
+              <Text style={[styles.navLabel, selected && styles.navActive]} numberOfLines={1}>{tab.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   app: { flex: 1, backgroundColor: '#F6F8FB' },
+  gate: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  gateText: { color: '#172B24', fontSize: 15, textAlign: 'center' },
   screen: { flex: 1 },
   navbar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#EDF0EE', paddingHorizontal: 5, paddingTop: 7, paddingBottom: 5 },
   navItem: { flex: 1, minWidth: 0, minHeight: 52, borderRadius: 13, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 2 },
