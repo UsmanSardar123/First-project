@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
+import AuthScreen from './src/screens/AuthScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import AddTransactionScreen from './src/screens/AddTransactionScreen';
 import TransactionsScreen from './src/screens/TransactionsScreen';
@@ -84,11 +85,12 @@ function AuthenticatedApp() {
   if (!user) {
     return (
       <SafeAreaView style={styles.app} edges={['top', 'right', 'bottom', 'left']}>
-        <View style={styles.gate}>
-          <Text style={styles.gateText}>
-            {initializationError || 'Sign in to access your expenses.'}
-          </Text>
-        </View>
+        {initializationError ? (
+          <View style={styles.initializationError}>
+            <Text style={styles.gateText}>{initializationError}</Text>
+          </View>
+        ) : null}
+        <AuthScreen />
       </SafeAreaView>
     );
   }
@@ -114,7 +116,7 @@ function AuthenticatedApp() {
   } else if (screen === 'Budgets') {
     content = <BudgetsScreen currency={currency} onBack={goBack} />;
   } else if (screen === 'Settings') {
-    content = <SettingsScreen currency={currency} onCurrencyChange={setCurrency} onBack={goBack} />;
+    content = <SettingsScreen currency={currency} onCurrencyChange={setCurrency} onBack={goBack} user={user} />;
   } else if (screen === 'Menu') {
     content = <MenuScreen onBack={goBack} navigation={{ navigate: pushScreen }} />;
   } else {
@@ -152,7 +154,7 @@ function AuthenticatedApp() {
 
 const styles = StyleSheet.create({
   app: { flex: 1, backgroundColor: '#F6F8FB' },
-  gate: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  initializationError: { paddingHorizontal: 20, paddingTop: 12 },
   gateText: { color: '#172B24', fontSize: 15, textAlign: 'center' },
   screen: { flex: 1 },
   navbar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#EDF0EE', paddingHorizontal: 5, paddingTop: 7, paddingBottom: 5 },

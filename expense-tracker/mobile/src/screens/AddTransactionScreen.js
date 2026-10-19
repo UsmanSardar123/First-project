@@ -9,7 +9,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { createExpense, getExpenses, updateExpense } from '../api/expenseApi';
+import { createExpense, getBudgets, getExpenses, updateExpense } from '../api/expenseApi';
 import { currencySymbol, formatCurrency } from '../constants/currency';
 import { CATEGORY_ICONS, EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../constants/categories';
 
@@ -39,8 +39,11 @@ export default function AddTransactionScreen({
   const [error, setError] = useState('');
   const [incomeTotal, setIncomeTotal] = useState(0);
   const [availableBalance, setAvailableBalance] = useState(0);
+  const [ledgerTransactions, setLedgerTransactions] = useState([]);
+  const [budgets, setBudgets] = useState([]);
   const [loadingLedger, setLoadingLedger] = useState(true);
   const [ledgerError, setLedgerError] = useState('');
+  const [budgetError, setBudgetError] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -48,6 +51,7 @@ export default function AddTransactionScreen({
       .then((items) => {
         if (!Array.isArray(items)) throw new Error('Unexpected transaction data received.');
         if (active) {
+          setLedgerTransactions(items);
           const totals = items.reduce((result, item) => {
             if (item.type === 'income') result.income += Number(item.amount) || 0;
             else result.expenses += Number(item.amount) || 0;
@@ -59,6 +63,14 @@ export default function AddTransactionScreen({
       })
       .catch((loadError) => { if (active) setLedgerError(loadError.message || 'Could not load your balance.'); })
       .finally(() => { if (active) setLoadingLedger(false); });
+    getBudgets()
+      .then((items) => {
+        if (!Array.isArray(items)) throw new Error('Unexpected budget data received.');
+        if (active) setBudgets(items);
+      })
+      .catch((loadError) => {
+        if (active) setBudgetError(loadError.message || 'Could not load monthly budget warnings.');
+      });
     return () => { active = false; };
   }, []);
 
@@ -104,6 +116,35 @@ export default function AddTransactionScreen({
   const accent = isIncome ? COLORS.primary : COLORS.red;
   const categoryList = isIncome ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
   const categoryOptions = category && !categoryList.includes(category) ? [category, ...categoryList] : categoryList;
+  const selectedMonth = new Date(`${date}T00:00:00`);
+  const monthlyBudget = budgets.find((budget) => (
+    String(budget.category || '').trim().toLocaleLowerCase()
+      === category.trim().toLocaleLowerCase()
+  ));
+  const spentInCategoryThisMonth = Number.isNaN(selectedMonth.getTime())
+    ? 0
+    : ledgerTransactions.reduce((total, item) => {
+      if (item.type === 'income' || item._id === transaction?._id) return total;
+      if (String(item.category || 'General').trim().toLocaleLowerCase()
+        !== category.trim().toLocaleLowerCase()) return total;
+      const itemDate = new Date(item.date);
+      if (
+        Number.isNaN(itemDate.getTime())
+        || itemDate.getMonth() !== selectedMonth.getMonth()
+        || itemDate.getFullYear() !== selectedMonth.getFullYear()
+      ) return total;
+      return total + (Number(item.amount) || 0);
+    }, 0);
+  const plannedCategorySpending = spentInCategoryThisMonth + (Number(amount) || 0);
+  const budgetLimit = Number(monthlyBudget?.amount) || 0;
+  const overBudgetAmount = Math.max(plannedCategorySpending - budgetLimit, 0);
+  const willExceedBudget = (
+    type === 'expense'
+    && Boolean(monthlyBudget)
+    && budgetLimit > 0
+    && Number(amount) > 0
+    && plannedCategorySpending > budgetLimit
+  );
 
   return (
     <View style={styles.safeArea}>
@@ -170,6 +211,20 @@ export default function AddTransactionScreen({
               );
             })}
           </View>
+          {willExceedBudget ? (
+            <View accessibilityRole="alert" style={styles.budgetWarning}>
+              <Text style={styles.budgetWarningIcon}>⚠</Text>
+              <View style={styles.budgetWarningCopy}>
+                <Text style={styles.budgetWarningTitle}>Monthly budget exceeded</Text>
+                <Text style={styles.budgetWarningText}>
+                  {category} will be over its {formatCurrency(budgetLimit, currency)} limit by {formatCurrency(overBudgetAmount, currency)} this month.
+                </Text>
+              </View>
+            </View>
+          ) : null}
+          {!willExceedBudget && budgetError ? (
+            <Text style={styles.budgetHint}>Budget warning unavailable: {budgetError}</Text>
+          ) : null}
 
           <Text style={styles.label}>Date</Text>
           <TextInput value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" placeholderTextColor="#9AA49F" style={styles.input} keyboardType="numbers-and-punctuation" maxLength={10} />
@@ -221,6 +276,12 @@ const styles = StyleSheet.create({
   input: { minHeight: 48, borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, paddingHorizontal: 13, color: COLORS.text, fontSize: 14, backgroundColor: '#FCFDFC' },
   notesInput: { minHeight: 92, paddingTop: 12 },
   error: { color: COLORS.red, fontSize: 12, marginTop: 14 },
+  budgetWarning: { flexDirection: 'row', alignItems: 'center', gap: 11, backgroundColor: '#FFF2E5', borderColor: '#F4A340', borderWidth: 1, borderRadius: 14, padding: 13, marginTop: 12 },
+  budgetWarningIcon: { color: '#B45309', backgroundColor: '#FFE0B2', width: 34, height: 34, borderRadius: 17, textAlign: 'center', textAlignVertical: 'center', fontSize: 21, fontWeight: '900', overflow: 'hidden' },
+  budgetWarningCopy: { flex: 1 },
+  budgetWarningTitle: { color: '#9A3412', fontSize: 13, fontWeight: '900' },
+  budgetWarningText: { color: '#7C3F14', fontSize: 11, lineHeight: 16, marginTop: 3 },
+  budgetHint: { color: COLORS.secondary, fontSize: 10, lineHeight: 15, marginTop: 8 },
   submitButton: { minHeight: 52, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginTop: 22 },
   submitDisabled: { opacity: 0.7 },
   submitText: { color: COLORS.white, fontWeight: '800', fontSize: 15, textTransform: 'capitalize' },

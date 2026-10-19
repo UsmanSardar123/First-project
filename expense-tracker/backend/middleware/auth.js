@@ -10,7 +10,10 @@ module.exports = async function auth(req, res, next) {
   }
 
   if (!process.env.JWT_SECRET) {
-    return res.status(500).json({ message: 'Authentication service unavailable' });
+    return res.status(500).json({
+      message:
+        'Authentication is not configured. Set JWT_SECRET in the backend environment and restart the server.',
+    });
   }
 
   let payload;

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import { CURRENCIES } from '../constants/currency';
+import { useAuth } from '../context/AuthContext';
 
 const COLORS = {
   background: '#F6F8FB', white: '#FFFFFF', primary: '#16A36A',
@@ -15,7 +16,23 @@ const COLORS = {
   border: '#EDF0EE',
 };
 
-export default function SettingsScreen({ onBack, currency, onCurrencyChange }) {
+export default function SettingsScreen({ onBack, currency, onCurrencyChange, user }) {
+  const { logout } = useAuth();
+  const [logoutError, setLogoutError] = useState('');
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  async function handleLogout() {
+    setLogoutError('');
+    setLoggingOut(true);
+    try {
+      await logout();
+    } catch {
+      setLogoutError('Unable to sign out. Please try again.');
+    } finally {
+      setLoggingOut(false);
+    }
+  }
+
   return (
     <View style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
@@ -47,7 +64,17 @@ export default function SettingsScreen({ onBack, currency, onCurrencyChange }) {
 
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Account</Text>
-          <Text style={styles.description}>No sign-in or account settings are configured in this app.</Text>
+          <Text style={styles.accountName}>{user?.name}</Text>
+          <Text style={styles.description}>{user?.email}</Text>
+          {logoutError ? <Text accessibilityRole="alert" style={styles.logoutError}>{logoutError}</Text> : null}
+          <Pressable
+            accessibilityRole="button"
+            disabled={loggingOut}
+            onPress={handleLogout}
+            style={({ pressed }) => [styles.logoutButton, (pressed || loggingOut) && styles.logoutPressed]}
+          >
+            <Text style={styles.logoutText}>{loggingOut ? 'Signing out…' : 'Log out'}</Text>
+          </Pressable>
         </View>
       </ScrollView>
     </View>
@@ -76,4 +103,9 @@ const styles = StyleSheet.create({
   symbol: { color: COLORS.secondary, fontSize: 16, fontWeight: '800' },
   selectedText: { color: COLORS.primary },
   note: { color: COLORS.secondary, fontSize: 10, lineHeight: 15, marginTop: 14 },
+  accountName: { color: COLORS.text, fontSize: 13, fontWeight: '700', marginTop: 12 },
+  logoutButton: { minHeight: 44, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center', marginTop: 16 },
+  logoutPressed: { opacity: 0.65 },
+  logoutText: { color: COLORS.primary, fontSize: 13, fontWeight: '800' },
+  logoutError: { color: '#B42318', fontSize: 11, marginTop: 8 },
 });

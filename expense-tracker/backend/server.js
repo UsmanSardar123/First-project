@@ -1,11 +1,12 @@
 
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
+
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { z } = require('zod');
-require('dotenv').config();
 
 const Expense = require('./models/Expense');
 const Budget = require('./models/Budget');
@@ -19,6 +20,7 @@ const authRateLimit = rateLimit({
   limit: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test',
   message: { message: 'Too many authentication attempts. Please try again later.' },
 });
 
@@ -70,10 +72,10 @@ app.get('/', (req, res) => {
 app.use('/api/expenses', auth);
 app.use('/api/expenses', expenseRoutes);
 
-app.use('/auth/login', authRateLimit);
-app.use('/auth/register', authRateLimit);
-app.use('/auth/google', authRateLimit);
-app.use('/auth', authRoutes);
+app.use(['/auth/login', '/api/auth/login'], authRateLimit);
+app.use(['/auth/register', '/api/auth/register'], authRateLimit);
+app.use(['/auth/google', '/api/auth/google'], authRateLimit);
+app.use(['/auth', '/api/auth'], authRoutes);
 
 // Get all budgets
 app.get('/api/budgets', async (req, res) => {
@@ -278,6 +280,12 @@ app.use((req, res) => {
 // Start the server after connecting to MongoDB
 async function startServer() {
   const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
+  if (!process.env.JWT_SECRET) {
+    console.error(
+      'JWT_SECRET missing from the backend environment; configure it before starting the server.'
+    );
+    process.exit(1);
+  }
   if (!mongoUri) {
     console.error('MONGO_URI missing from environment');
     process.exit(1);

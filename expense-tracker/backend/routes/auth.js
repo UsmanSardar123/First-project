@@ -8,6 +8,8 @@ const auth = require('../middleware/auth');
 
 const router = express.Router();
 const googleClient = new OAuth2Client();
+const authConfigMessage =
+  'Authentication is not configured. Set JWT_SECRET in the backend environment and restart the server.';
 
 const registerSchema = z.object({
   name: z.string().trim().min(1),
@@ -52,7 +54,7 @@ router.post('/register', async (req, res) => {
     return res.status(400).json({ message: 'Invalid registration details' });
   }
   if (!process.env.JWT_SECRET) {
-    return res.status(500).json({ message: 'Authentication service unavailable' });
+    return res.status(500).json({ message: authConfigMessage });
   }
 
   try {
@@ -86,7 +88,7 @@ router.post('/login', async (req, res) => {
     return res.status(401).json({ message: 'Invalid email or password' });
   }
   if (!process.env.JWT_SECRET) {
-    return res.status(500).json({ message: 'Authentication service unavailable' });
+    return res.status(500).json({ message: authConfigMessage });
   }
 
   try {
@@ -103,18 +105,27 @@ router.post('/login', async (req, res) => {
 
 router.post('/google', async (req, res) => {
   const input = validBody(googleSchema, req.body);
-  if (!input || !process.env.GOOGLE_WEB_CLIENT_ID) {
+  if (!input) {
     return res.status(401).json({ message: 'Invalid Google sign-in token' });
   }
   if (!process.env.JWT_SECRET) {
-    return res.status(500).json({ message: 'Authentication service unavailable' });
+    return res.status(500).json({ message: authConfigMessage });
+  }
+
+  const audiences = [
+    process.env.GOOGLE_WEB_CLIENT_ID,
+    process.env.GOOGLE_ANDROID_CLIENT_ID,
+    process.env.GOOGLE_IOS_CLIENT_ID,
+  ].filter(Boolean);
+  if (audiences.length === 0) {
+    return res.status(503).json({ message: 'Google sign-in is not configured on the server' });
   }
 
   let payload;
   try {
     const ticket = await googleClient.verifyIdToken({
       idToken: input.idToken,
-      audience: process.env.GOOGLE_WEB_CLIENT_ID,
+      audience: audiences,
     });
     payload = ticket.getPayload();
   } catch {

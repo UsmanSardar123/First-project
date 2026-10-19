@@ -1,7 +1,7 @@
 import { API_URL } from '../constants/config';
 import { request } from './client';
 
-const API_BASE_URL = API_URL.replace(/\/api\/expenses\/?$/, '');
+const API_BASE_URL = API_URL.replace(/\/(?:api\/)?expenses\/?$/, '').replace(/\/api\/?$/, '');
 
 function post(endpoint, body) {
   return request(`${API_BASE_URL}/auth/${endpoint}`, {

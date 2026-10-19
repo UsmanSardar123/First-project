@@ -1,9 +1,10 @@
 const express = require('express');
 const router = express.Router();
 
-const { getExpenses } = require('../controllers/expenseController');
+const { getExpense, getExpenses } = require('../controllers/expenseController');
 
 // GET /api/expenses
 router.get('/', getExpenses);
+router.get('/:id', getExpense);
 
 module.exports = router;
