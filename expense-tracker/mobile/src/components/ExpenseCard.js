@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
+import { createThemedStyles } from '../theme';
 
 export default function ExpenseCard({ expense, onDelete }) {
   return (
@@ -17,7 +18,7 @@ export default function ExpenseCard({ expense, onDelete }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyles({
   card: {
     flexDirection: 'row',
     justifyContent: 'space-between',

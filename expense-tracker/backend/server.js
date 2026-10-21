@@ -5,25 +5,18 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
 const { z } = require('zod');
 
 const Expense = require('./models/Expense');
+const Wallet = require('./models/Wallet');
+const resolveDefaultWallet = require('./utils/defaultWallet');
 const Budget = require('./models/Budget');
 const expenseRoutes = require('./routes/expenseRoutes');
-const authRoutes = require('./routes/auth');
-const auth = require('./middleware/auth');
+const walletRoutes = require('./routes/walletRoutes');
+const authRoutes = require('./routes/authRoutes');
+const authenticate = require('./middleware/auth');
 
 const app = express();
-const authRateLimit = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: () => process.env.NODE_ENV === 'test',
-  message: { message: 'Too many authentication attempts. Please try again later.' },
-});
-
 const expenseFields = {
   title: z.string().trim().min(1),
   amount: z.coerce.number().positive(),
@@ -32,6 +25,7 @@ const expenseFields = {
   type: z.enum(['expense', 'income']).optional(),
   notes: z.string().trim().optional(),
   paymentMethod: z.string().trim().optional(),
+  walletId: z.string().regex(/^[a-f\d]{24}$/i).optional(),
 };
 const createExpenseSchema = z.object({
   title: expenseFields.title,
@@ -41,6 +35,7 @@ const createExpenseSchema = z.object({
   type: expenseFields.type,
   notes: expenseFields.notes,
   paymentMethod: expenseFields.paymentMethod,
+  walletId: expenseFields.walletId,
 });
 const updateExpenseSchema = createExpenseSchema.partial().refine(
   (data) => Object.keys(data).length > 0
@@ -68,14 +63,14 @@ app.get('/', (req, res) => {
   res.send('Expense API running');
 });
 
-// Expense routes handled by the router and controller
-app.use('/api/expenses', auth);
-app.use('/api/expenses', expenseRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/auth', authRoutes);
 
-app.use(['/auth/login', '/api/auth/login'], authRateLimit);
-app.use(['/auth/register', '/api/auth/register'], authRateLimit);
-app.use(['/auth/google', '/api/auth/google'], authRateLimit);
-app.use(['/auth', '/api/auth'], authRoutes);
+// Expense routes handled by the router and controller
+app.use('/api/expenses', authenticate);
+app.use('/api/expenses', expenseRoutes);
+app.use('/api/wallets', authenticate);
+app.use('/api/wallets', walletRoutes);
 
 // Get all budgets
 app.get('/api/budgets', async (req, res) => {
@@ -155,7 +150,11 @@ app.post('/api/expenses', async (req, res) => {
       }
     }
 
-    const expense = await Expense.create({ ...parsed.data, userId: req.user.id });
+    const wallet = parsed.data.walletId
+      ? await Wallet.findOne({ _id: parsed.data.walletId, userId: req.user.id })
+      : await resolveDefaultWallet(req.user.id);
+    if (!wallet) return res.status(404).json({ message: 'Wallet not found' });
+    const expense = await Expense.create({ ...parsed.data, walletId: wallet._id, userId: req.user.id });
 
     res.status(201).json(expense);
   } catch (error) {
@@ -191,6 +190,10 @@ app.put('/api/expenses/:id', async (req, res) => {
 
     const amount = parsed.data.amount ?? currentExpense.amount;
     const type = parsed.data.type ?? currentExpense.type;
+    const wallet = parsed.data.walletId
+      ? await Wallet.findOne({ _id: parsed.data.walletId, userId: req.user.id })
+      : await resolveDefaultWallet(req.user.id);
+    if (!wallet) return res.status(404).json({ message: 'Wallet not found' });
 
     if (type !== 'income') {
       const availableIncome = await getAvailableIncome(req.user.id, req.params.id);
@@ -203,7 +206,7 @@ app.put('/api/expenses/:id', async (req, res) => {
 
     const expense = await Expense.findOneAndUpdate(
       { _id: req.params.id, userId: req.user.id },
-      { $set: parsed.data },
+      { $set: { ...parsed.data, walletId: wallet._id } },
       {
         new: true,
         runValidators: true,
@@ -280,12 +283,6 @@ app.use((req, res) => {
 // Start the server after connecting to MongoDB
 async function startServer() {
   const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
-  if (!process.env.JWT_SECRET) {
-    console.error(
-      'JWT_SECRET missing from the backend environment; configure it before starting the server.'
-    );
-    process.exit(1);
-  }
   if (!mongoUri) {
     console.error('MONGO_URI missing from environment');
     process.exit(1);
@@ -311,3 +308,4 @@ if (require.main === module) {
 }
 
 module.exports = app;
+

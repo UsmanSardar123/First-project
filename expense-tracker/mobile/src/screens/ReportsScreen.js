@@ -1,22 +1,22 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createThemeColors, createThemedStyles, isDarkMode } from '../theme';
 import {
   ActivityIndicator,
   Pressable,
   ScrollView,
   StatusBar,
-  StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { getExpenses } from '../api/expenseApi';
 import { formatCurrency } from '../constants/currency';
 
-const COLORS = {
+const COLORS = createThemeColors({
   background: '#F6F8FB', white: '#FFFFFF', primary: '#16A36A',
   primaryLight: '#E5F7EE', text: '#172B24', secondary: '#7C8983',
   border: '#EDF0EE', red: '#E65B64', redLight: '#FCECEE',
   orange: '#F2A541', blue: '#5479E8', purple: '#9670DC',
-};
+});
 
 const monthLabel = (date) => date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
@@ -94,7 +94,7 @@ export default function ReportsScreen({ onBack, onTransactions, currency = 'PKR'
 
   return (
     <View style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
+      <StatusBar barStyle={isDarkMode() ? 'light-content' : 'dark-content'} backgroundColor={COLORS.background} />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back to previous screen" hitSlop={8} style={({ pressed }) => [styles.backButton, pressed && styles.backPressed]}><Text style={styles.backText}>‹</Text></Pressable>
@@ -147,7 +147,7 @@ export default function ReportsScreen({ onBack, onTransactions, currency = 'PKR'
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyles({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
   content: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 30 },
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },

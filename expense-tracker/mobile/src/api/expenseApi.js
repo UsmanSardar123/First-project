@@ -1,15 +1,25 @@
 import { API_URL } from '../constants/config';
 import { request } from './client';
 
-export async function getExpenses() {
-  return request(API_URL);
+export async function getExpenses(type, walletId) {
+  const params = [];
+  if (type) params.push(`type=${encodeURIComponent(type)}`);
+  if (walletId) params.push(`walletId=${encodeURIComponent(walletId)}`);
+  const endpoint = params.length ? `${API_URL}?${params.join('&')}` : API_URL;
+  return request(endpoint);
 }
 
-export async function createExpense(expense) {
+export async function getSummary(month, walletId) {
+  const params = [`month=${encodeURIComponent(month)}`];
+  if (walletId) params.push(`walletId=${encodeURIComponent(walletId)}`);
+  return request(`${API_URL}/summary?${params.join('&')}`);
+}
+
+export async function createExpense(expense, walletId) {
   return request(API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(expense),
+    body: JSON.stringify(walletId ? { ...expense, walletId } : expense),
   });
 }
 

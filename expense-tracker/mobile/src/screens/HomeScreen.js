@@ -1,18 +1,19 @@
 
 import React, { useEffect, useState } from 'react';
+import { createThemeColors, createThemedStyles } from '../theme';
 import {
   ScrollView,
   View,
   Text,
-  StyleSheet,
   Pressable,
   RefreshControl,
   StatusBar,
 } from 'react-native';
 import { getExpenses } from '../api/expenseApi';
+import { getWallets } from '../api/walletsApi';
 import { formatCurrency } from '../constants/currency';
 
-const COLORS = {
+const COLORS = createThemeColors({
   background: '#F6F8FB',
   white: '#FFFFFF',
   primary: '#16A36A',
@@ -26,7 +27,7 @@ const COLORS = {
   blue: '#5479E8',
   orange: '#F2A541',
   purple: '#9670DC',
-};
+});
 
 const SPENDING_PERIODS = [
   { value: 'daily', label: 'Daily', icon: '🕒', subtitle: 'Expenses by time of day' },
@@ -60,9 +61,9 @@ function SectionHeader({ title, action, onPress }) {
   );
 }
 
-function SummaryCard({ title, amount, icon, color, background, currency = 'PKR' }) {
+function SummaryCard({ title, amount, icon, color, background, currency = 'PKR', compact = false }) {
   return (
-    <View style={styles.summaryCard}>
+    <View style={[styles.summaryCard, compact && styles.compactSummaryCard]}>
       <View style={styles.summaryTop}>
         <View
           style={[
@@ -76,7 +77,7 @@ function SummaryCard({ title, amount, icon, color, background, currency = 'PKR' 
         <Text style={styles.summaryLabel}>{title}</Text>
       </View>
 
-      <Text style={[styles.summaryAmount, { color }]} numberOfLines={1}>
+      <Text style={[styles.summaryAmount, compact && styles.compactSummaryAmount, { color }]} numberOfLines={1} adjustsFontSizeToFit>
         {amount == null ? 'Not tracked' : formatCurrency(amount, currency)}
       </Text>
     </View>
@@ -234,13 +235,18 @@ function SpendingChart({ transactions, period, onPeriodChange, currency, now, se
   );
 }
 
-export default function HomeScreen({ navigation, currency = 'PKR' }) {
+export default function HomeScreen({ navigation, currency = 'PKR', user, darkMode = false, onDarkModeChange }) {
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [spendingPeriod, setSpendingPeriod] = useState('weekly');
   const [selectedDay, setSelectedDay] = useState(() => new Date());
+  const [summaryMonth, setSummaryMonth] = useState(() => new Date());
+  const [wallets, setWallets] = useState([]);
+  const [walletLoading, setWalletLoading] = useState(true);
+  const [walletError, setWalletError] = useState('');
+  const [selectedWalletId, setSelectedWalletId] = useState(null);
 
   const loadExpenses = async () => {
     setRefreshing(true);
@@ -249,6 +255,8 @@ export default function HomeScreen({ navigation, currency = 'PKR' }) {
       const result = await getExpenses();
       if (!Array.isArray(result)) throw new Error('Unexpected expense data received');
       setExpenses(result);
+      const walletResult = await getWallets();
+      if (Array.isArray(walletResult)) setWallets(walletResult);
     } catch (loadError) {
       setError(loadError.message || 'Could not load expenses');
     } finally {
@@ -282,36 +290,45 @@ export default function HomeScreen({ navigation, currency = 'PKR' }) {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    getWallets()
+      .then((items) => {
+        if (!Array.isArray(items)) throw new Error('Unexpected wallet data received');
+        if (active) setWallets(items);
+      })
+      .catch((loadError) => { if (active) setWalletError(loadError.message || 'Could not load wallets'); })
+      .finally(() => { if (active) setWalletLoading(false); });
+    return () => { active = false; };
+  }, []);
+
   const now = new Date();
-  const monthExpenses = expenses.filter((item) => {
+  const selectedWallet = wallets.find((wallet) => wallet._id === selectedWalletId);
+  const visibleExpenses = selectedWalletId
+    ? expenses.filter((item) => item.walletId === selectedWalletId || (selectedWallet?.isDefault && !item.walletId))
+    : expenses;
+  const monthTransactions = visibleExpenses.filter((item) => {
     const date = new Date(item.date);
-    return item.type !== 'income' && !Number.isNaN(date.getTime()) && date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+    return !Number.isNaN(date.getTime()) && date.getMonth() === summaryMonth.getMonth() && date.getFullYear() === summaryMonth.getFullYear();
   });
-  const monthlyExpenses = monthExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-  const totalIncome = expenses.reduce((sum, item) => item.type === 'income' ? sum + (Number(item.amount) || 0) : sum, 0);
-  const totalExpenses = expenses.reduce((sum, item) => item.type !== 'income' ? sum + (Number(item.amount) || 0) : sum, 0);
-  const availableIncome = totalIncome - totalExpenses;
-  const remainingRatio = totalIncome > 0 ? availableIncome / totalIncome : 0;
-  const balanceLevel = remainingRatio <= 0.2 ? 'danger' : remainingRatio <= 0.4 ? 'warning' : 'healthy';
-  const balanceColor = balanceLevel === 'danger' ? COLORS.red : balanceLevel === 'warning' ? COLORS.amber : COLORS.primary;
-  const balanceStatus = totalIncome <= 0
-    ? 'No income recorded'
-    : availableIncome < 0
-      ? 'Expenses exceed income'
-      : balanceLevel === 'danger'
-        ? 'Danger · 20% or less left'
-        : balanceLevel === 'warning'
-          ? 'Caution · under 40% left'
-          : 'Healthy balance';
-  const goTo = (screen) => {
-    navigation?.navigate?.(screen);
+  const monthlyIncome = monthTransactions.reduce((sum, item) => item.type === 'income' ? sum + (Number(item.amount) || 0) : sum, 0);
+  const monthlyExpenses = monthTransactions.reduce((sum, item) => item.type !== 'income' ? sum + (Number(item.amount) || 0) : sum, 0);
+  const monthlyNet = monthlyIncome - monthlyExpenses;
+  const monthLabel = summaryMonth.toLocaleDateString('en-PK', { month: 'long', year: 'numeric' });
+  const isCurrentMonth = summaryMonth.getFullYear() === now.getFullYear() && summaryMonth.getMonth() === now.getMonth();
+  const allWalletBalance = wallets.reduce((sum, wallet) => sum + (Number(wallet.balance) || 0), 0);
+  const currentBalance = selectedWallet ? Number(selectedWallet.balance) || 0 : allWalletBalance;
+  const balanceColor = currentBalance < 0 ? COLORS.red : COLORS.primary;
+  const balanceStatus = selectedWallet ? `${selectedWallet.name} · ${selectedWallet.type}` : 'Across all active wallets';
+  const goTo = (screen, options) => {
+    navigation?.navigate?.(screen, options);
   };
 
   return (
-    <View style={styles.safeArea}>
+    <View style={[styles.safeArea, darkMode && styles.darkBackground]}>
       <StatusBar
-        barStyle="dark-content"
-        backgroundColor={COLORS.background}
+        barStyle={darkMode ? 'light-content' : 'dark-content'}
+        backgroundColor={darkMode ? '#111A17' : COLORS.background}
       />
 
       <ScrollView
@@ -327,13 +344,16 @@ export default function HomeScreen({ navigation, currency = 'PKR' }) {
             <Text style={styles.headerTitle}>My finances</Text>
           </View>
 
+          <Pressable onPress={() => onDarkModeChange?.(!darkMode)} accessibilityRole="switch" accessibilityLabel="Dark mode" accessibilityState={{ checked: darkMode }} style={[styles.themeButton, darkMode && styles.themeButtonDark]}>
+            <Text style={[styles.themeButtonText, darkMode && styles.darkText]}>{darkMode ? '☀' : '☾'}</Text>
+          </Pressable>
           <Pressable
             style={styles.profileButton}
-            onPress={() => goTo('Settings')}
+            onPress={() => goTo('Profile')}
             accessibilityRole="button"
-            accessibilityLabel="Open settings"
+            accessibilityLabel="Open profile"
           >
-            <Text style={styles.profileInitial}>U</Text>
+            <Text style={styles.profileInitial}>{user?.name?.trim()?.charAt(0)?.toUpperCase() || 'U'}</Text>
           </Pressable>
         </View>
 
@@ -341,9 +361,9 @@ export default function HomeScreen({ navigation, currency = 'PKR' }) {
         <View style={[styles.balanceCard, { backgroundColor: balanceColor }]}>
           <View style={styles.balanceTop}>
             <View>
-              <Text style={styles.balanceLabel}>Available to spend</Text>
-              <Text style={styles.balanceAmount} numberOfLines={1}>
-                {availableIncome < 0 ? '−' : ''}{formatCurrency(Math.abs(availableIncome), currency)}
+              <Text style={styles.balanceLabel}>{selectedWallet ? `${selectedWallet.name} balance` : 'Total balance'}</Text>
+              <Text style={styles.balanceAmount} numberOfLines={1} adjustsFontSizeToFit>
+                {walletLoading ? 'Loading…' : formatCurrency(currentBalance, currency)}
               </Text>
             </View>
 
@@ -356,7 +376,7 @@ export default function HomeScreen({ navigation, currency = 'PKR' }) {
 
           <View style={styles.balanceFooter}>
             <View>
-              <Text style={styles.balanceFooterLabel}>Income status</Text>
+              <Text style={styles.balanceFooterLabel}>Wallet scope</Text>
               <Text style={styles.balanceFooterValue} numberOfLines={1}>{balanceStatus}</Text>
             </View>
 
@@ -370,33 +390,42 @@ export default function HomeScreen({ navigation, currency = 'PKR' }) {
               </Text>
             </Pressable>
           </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.walletChips}>
+            <Pressable onPress={() => setSelectedWalletId(null)} accessibilityRole="button" accessibilityState={{ selected: !selectedWalletId }} style={[styles.walletChip, !selectedWalletId && styles.walletChipSelected]}>
+              <Text style={[styles.walletChipText, !selectedWalletId && styles.walletChipTextSelected]}>All</Text>
+            </Pressable>
+            {wallets.map((wallet) => {
+              const selected = selectedWalletId === wallet._id;
+              return <Pressable key={wallet._id} onPress={() => setSelectedWalletId(wallet._id)} accessibilityRole="button" accessibilityState={{ selected }} style={[styles.walletChip, selected && styles.walletChipSelected]}>
+                <Text style={[styles.walletChipText, selected && styles.walletChipTextSelected]}>{wallet.icon || '◉'} {wallet.name}</Text>
+              </Pressable>;
+            })}
+          </ScrollView>
+          {walletError ? <Text style={styles.walletError}>{walletError}</Text> : null}
         </View>
 
-        {/* Income and expenses */}
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryColumn}>
-            <SummaryCard
-              title="Total income"
-              amount={totalIncome}
-              icon="↙"
-              color={COLORS.primary}
-              background={COLORS.primaryLight}
-              currency={currency}
-            />
-          </View>
-
-          <View style={styles.summaryColumn}>
-            <SummaryCard
-              title="Expenses this month"
-              amount={monthlyExpenses}
-              icon="↗"
-              color={COLORS.red}
-              background={COLORS.redLight}
-              currency={currency}
-            />
-          </View>
+        {/* Monthly income, expenses, and net */}
+        <View style={styles.monthSummaryHeader}>
+          <Pressable onPress={() => setSummaryMonth((month) => new Date(month.getFullYear(), month.getMonth() - 1, 1))} accessibilityRole="button" accessibilityLabel="Previous month" style={styles.monthArrow}>
+            <Text style={styles.monthArrowText}>‹</Text>
+          </Pressable>
+          <Text style={styles.monthSummaryTitle}>{monthLabel}</Text>
+          <Pressable onPress={() => setSummaryMonth((month) => new Date(month.getFullYear(), month.getMonth() + 1, 1))} accessibilityRole="button" accessibilityLabel="Next month" disabled={isCurrentMonth} style={[styles.monthArrow, isCurrentMonth && styles.monthArrowDisabled]}>
+            <Text style={styles.monthArrowText}>›</Text>
+          </Pressable>
         </View>
-
+        {loading ? <View style={styles.monthSummaryState}><Text style={styles.mutedText}>Loading monthly totals…</Text></View> : error ? <View style={styles.monthSummaryState}><Text style={styles.monthSummaryError}>Monthly totals unavailable</Text></View> : (
+          <View style={styles.monthSummaryRow}>
+            <SummaryCard title="Income" amount={monthlyIncome} icon="+" color={COLORS.primary} background={COLORS.primaryLight} currency={currency} compact />
+            <SummaryCard title="Expenses" amount={monthlyExpenses} icon="−" color={COLORS.red} background={COLORS.redLight} currency={currency} compact />
+            <SummaryCard title="Net balance" amount={monthlyNet} icon="=" color={monthlyNet >= 0 ? COLORS.primary : COLORS.red} background={monthlyNet >= 0 ? COLORS.primaryLight : COLORS.redLight} currency={currency} compact />
+          </View>
+        )}
+        <Pressable onPress={() => goTo('Wallets')} accessibilityRole="button" style={styles.walletsEntry}>
+          <View style={styles.walletsEntryIcon}><Text style={styles.walletsEntryIconText}>▣</Text></View>
+          <View style={styles.walletsEntryCopy}><Text style={styles.walletsEntryTitle}>Wallets</Text><Text style={styles.walletsEntryHint}>Manage accounts and balances</Text></View>
+          <Text style={styles.walletsEntryArrow}>›</Text>
+        </Pressable>
         {/* Quick actions */}
         <View style={styles.quickActions}>
           <Pressable
@@ -410,7 +439,7 @@ export default function HomeScreen({ navigation, currency = 'PKR' }) {
 
           <Pressable
             style={styles.secondaryAction}
-            onPress={() => goTo('Transactions')}
+            onPress={() => goTo('Transactions', { walletId: selectedWalletId })}
             accessibilityRole="button"
           >
             <Text style={styles.secondaryActionIcon}>↗</Text>
@@ -426,8 +455,8 @@ export default function HomeScreen({ navigation, currency = 'PKR' }) {
 
           {loading ? <Text style={styles.stateText}>Loading expense data…</Text> : error ? (
             <View style={styles.stateCard}><Text style={styles.stateText}>{error}</Text><Pressable onPress={loadExpenses}><Text style={styles.sectionAction}>Tap to retry</Text></Pressable></View>
-          ) : expenses.some((item) => item.type !== 'income') ? (
-            <SpendingChart transactions={expenses} period={spendingPeriod} onPeriodChange={setSpendingPeriod} currency={currency} now={now} selectedDay={selectedDay} onSelectedDayChange={setSelectedDay} />
+          ) : visibleExpenses.some((item) => item.type !== 'income') ? (
+            <SpendingChart transactions={visibleExpenses} period={spendingPeriod} onPeriodChange={setSpendingPeriod} currency={currency} now={now} selectedDay={selectedDay} onSelectedDayChange={setSelectedDay} />
           ) : <View style={styles.stateCard}><Text style={styles.stateText}>Add an expense to see your spending trend.</Text></View>}
         </View>
 
@@ -436,11 +465,12 @@ export default function HomeScreen({ navigation, currency = 'PKR' }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyles({
   safeArea: {
     flex: 1,
     backgroundColor: COLORS.background,
   },
+  darkBackground: { backgroundColor: '#111A17' },
   container: {
     flex: 1,
   },
@@ -457,6 +487,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 22,
   },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  themeButton: { width: 42, height: 42, borderRadius: 14, backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center' },
+  themeButtonDark: { backgroundColor: '#1B2923', borderColor: '#2B3A33' },
+  themeButtonText: { color: COLORS.text, fontSize: 19, fontWeight: '700' },
+  darkText: { color: '#F1F5F2' },
   greeting: {
     color: COLORS.secondary,
     fontSize: 13,
@@ -549,6 +584,12 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 12,
   },
+  walletChips: { flexDirection: 'row', gap: 7, paddingTop: 14 },
+  walletChip: { borderRadius: 10, backgroundColor: '#FFFFFF25', paddingHorizontal: 11, minHeight: 33, justifyContent: 'center' },
+  walletChipSelected: { backgroundColor: COLORS.white },
+  walletChipText: { color: COLORS.white, fontSize: 10, fontWeight: '700' },
+  walletChipTextSelected: { color: COLORS.primary },
+  walletError: { color: '#FFE6E6', fontSize: 10, marginTop: 8 },
 
   // Summary cards
   summaryRow: {
@@ -556,6 +597,21 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 16,
   },
+  monthSummaryHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  monthSummaryTitle: { color: COLORS.text, fontSize: 14, fontWeight: '800' },
+  monthArrow: { width: 34, height: 32, borderRadius: 10, backgroundColor: COLORS.white, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: COLORS.border },
+  monthArrowDisabled: { opacity: 0.35 },
+  monthArrowText: { color: COLORS.text, fontSize: 21, lineHeight: 25, fontWeight: '700' },
+  monthSummaryRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
+  monthSummaryState: { minHeight: 76, backgroundColor: COLORS.white, borderRadius: 16, justifyContent: 'center', alignItems: 'center', marginBottom: 16, borderWidth: 1, borderColor: COLORS.border },
+  monthSummaryError: { color: COLORS.red, fontSize: 12 },
+  walletsEntry: { flexDirection: 'row', alignItems: 'center', gap: 11, padding: 13, borderRadius: 16, backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.border, marginBottom: 17 },
+  walletsEntryIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: COLORS.primaryLight, alignItems: 'center', justifyContent: 'center' },
+  walletsEntryIconText: { color: COLORS.primary, fontSize: 19 },
+  walletsEntryCopy: { flex: 1 },
+  walletsEntryTitle: { color: COLORS.text, fontSize: 13, fontWeight: '800' },
+  walletsEntryHint: { color: COLORS.secondary, fontSize: 10, marginTop: 3 },
+  walletsEntryArrow: { color: COLORS.secondary, fontSize: 22 },
   summaryColumn: {
     flex: 1,
   },
@@ -568,6 +624,8 @@ const styles = StyleSheet.create({
     minHeight: 125,
     justifyContent: 'space-between',
   },
+  compactSummaryCard: { flex: 1, minWidth: 0, padding: 10, minHeight: 106 },
+  compactSummaryAmount: { fontSize: 13, marginTop: 8 },
   summaryTop: {
     gap: 9,
   },

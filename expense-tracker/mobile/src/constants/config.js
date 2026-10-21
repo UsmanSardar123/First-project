@@ -1,1 +1,1 @@
-export const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://10.0.2.2:5000/api/expenses';
+export const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://10.0.2.2:5001/api/expenses';

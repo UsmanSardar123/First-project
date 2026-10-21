@@ -1,10 +1,11 @@
 import React from 'react';
-import { Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { createThemeColors, createThemedStyles, isDarkMode } from '../theme';
+import { Pressable, ScrollView, StatusBar, Text, View } from 'react-native';
 
-const COLORS = {
+const COLORS = createThemeColors({
   background: '#F6F8FB', white: '#FFFFFF', primary: '#16A36A',
   primaryLight: '#E5F7EE', text: '#172B24', secondary: '#7C8983', border: '#EDF0EE',
-};
+});
 
 const ACTIONS = [
   { title: 'Reports', description: 'Review monthly totals and spending by category', icon: '▥', screen: 'Reports' },
@@ -17,7 +18,7 @@ const ACTIONS = [
 export default function MenuScreen({ onBack, navigation }) {
   return (
     <View style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
+      <StatusBar barStyle={isDarkMode() ? 'light-content' : 'dark-content'} backgroundColor={COLORS.background} />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back to dashboard" hitSlop={8} style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
@@ -54,7 +55,7 @@ export default function MenuScreen({ onBack, navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyles({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
   content: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 28 },
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 28 },

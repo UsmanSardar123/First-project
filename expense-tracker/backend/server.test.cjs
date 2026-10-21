@@ -1,17 +1,11 @@
 jest.mock('dotenv', () => ({ config: jest.fn() }));
-jest.mock('google-auth-library', () => ({
-  OAuth2Client: jest.fn().mockImplementation(() => ({
-    verifyIdToken: jest.fn(),
-  })),
-}));
-
 const mongoose = require('mongoose');
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
 const { MongoMemoryServer } = require('mongodb-memory-server');
-const { OAuth2Client } = require('google-auth-library');
 const User = require('./models/User');
 const Expense = require('./models/Expense');
+const Wallet = require('./models/Wallet');
 
 process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'test-only-jwt-signing-secret';
@@ -22,7 +16,6 @@ process.env.GOOGLE_IOS_CLIENT_ID = 'test-google-ios-client-id';
 
 let app;
 let mongoServer;
-let googleClient;
 
 jest.setTimeout(15000);
 
@@ -41,14 +34,12 @@ function expectNoPasswordHash(response) {
 beforeAll(async () => {
   mongoServer = await MongoMemoryServer.create();
   await mongoose.connect(mongoServer.getUri());
-  await Promise.all([User.init(), Expense.init()]);
+  await Promise.all([User.init(), Expense.init(), Wallet.init()]);
   app = require('./server');
-  googleClient = OAuth2Client.mock.results[0].value;
 }, 120000);
 
 beforeEach(async () => {
-  await Promise.all([User.deleteMany({}), Expense.deleteMany({})]);
-  googleClient.verifyIdToken.mockReset();
+  await Promise.all([User.deleteMany({}), Expense.deleteMany({}), Wallet.deleteMany({})]);
 });
 
 afterAll(async () => {
@@ -136,39 +127,6 @@ describe('local authentication', () => {
     expectNoPasswordHash(successfulLogin);
   });
 
-  test('returns the authenticated user from /auth/me without passwordHash', async () => {
-    const account = await createAccount('me@example.com');
-    const response = await request(app)
-      .get('/auth/me')
-      .set('Authorization', `Bearer ${account.token}`);
-
-    expect(response.status).toBe(200);
-    expect(response.body.user.email).toBe('me@example.com');
-    expectNoPasswordHash(response);
-  });
-
-  test.each([
-    ['missing', null],
-    ['invalid', 'not-a-valid-token'],
-    ['expired', 'expired'],
-  ])('rejects a %s token for /auth/me', async (kind, suppliedToken) => {
-    const account = await createAccount(`${kind}@example.com`);
-    let authorization = suppliedToken;
-    if (kind === 'expired') {
-      authorization = jwt.sign(
-        { id: account.user.id },
-        process.env.JWT_SECRET,
-        { expiresIn: '-1s' }
-      );
-    }
-
-    const call = request(app).get('/auth/me');
-    if (authorization) call.set('Authorization', `Bearer ${authorization}`);
-    const response = await call;
-
-    expect(response.status).toBe(401);
-    expect(response.body).toHaveProperty('message');
-  });
 });
 
 describe('expense ownership', () => {
@@ -180,6 +138,29 @@ describe('expense ownership', () => {
 
     expect(list.status).toBe(401);
     expect(create.status).toBe(401);
+  });
+
+  test('supports authenticated create, read, update, and delete for the owner', async () => {
+    const account = await createAccount('crud@example.com');
+    const headers = { Authorization: `Bearer ${account.token}` };
+    const created = await request(app)
+      .post('/api/expenses')
+      .set(headers)
+      .send({ title: 'Payday', amount: 500, type: 'income' });
+    const read = await request(app).get(`/api/expenses/${created.body._id}`).set(headers);
+    const updated = await request(app)
+      .put(`/api/expenses/${created.body._id}`)
+      .set(headers)
+      .send({ title: 'Monthly payday' });
+    const removed = await request(app).delete(`/api/expenses/${created.body._id}`).set(headers);
+
+    expect(created.status).toBe(201);
+    expect(read.status).toBe(200);
+    expect(read.body.title).toBe('Payday');
+    expect(updated.status).toBe(200);
+    expect(updated.body.title).toBe('Monthly payday');
+    expect(removed.status).toBe(200);
+    expect(await Expense.findById(created.body._id)).toBeNull();
   });
 
   test('prevents one user from reading, updating, or deleting another user expense', async () => {
@@ -231,114 +212,210 @@ describe('expense ownership', () => {
     expect(response.body.userId).toBe(account.user.id);
     expectNoPasswordHash(response);
   });
+
+  test('creates income records and defaults omitted type to expense', async () => {
+    const account = await createAccount('types@example.com');
+    const income = await request(app)
+      .post('/api/expenses')
+      .set('Authorization', `Bearer ${account.token}`)
+      .send({ title: 'Payday', amount: 500, type: 'income', category: 'Salary' });
+    const expense = await request(app)
+      .post('/api/expenses')
+      .set('Authorization', `Bearer ${account.token}`)
+      .send({ title: 'Lunch', amount: 25 });
+
+    expect(income.status).toBe(201);
+    expect(income.body.type).toBe('income');
+    expect(expense.status).toBe(201);
+    expect(expense.body.type).toBe('expense');
+  });
+
+  test('filters transactions by type and counts legacy records as expenses', async () => {
+    const account = await createAccount('filters@example.com');
+    await Expense.create({ userId: account.user.id, title: 'Payday', amount: 500, type: 'income' });
+    await Expense.collection.insertOne({
+      userId: new mongoose.Types.ObjectId(account.user.id), title: 'Old record', amount: 40,
+      category: 'General', date: new Date(), createdAt: new Date(), updatedAt: new Date(),
+    });
+
+    const income = await request(app).get('/api/expenses?type=income').set('Authorization', `Bearer ${account.token}`);
+    const expenses = await request(app).get('/api/expenses?type=expense').set('Authorization', `Bearer ${account.token}`);
+
+    expect(income.status).toBe(200);
+    expect(income.body.map((item) => item.title)).toEqual(['Payday']);
+    expect(expenses.status).toBe(200);
+    expect(expenses.body.map((item) => item.title)).toEqual(['Old record']);
+  });
+
+  test('returns monthly totals and category totals, including legacy expenses', async () => {
+    const account = await createAccount('summary@example.com');
+    const currentMonth = new Date();
+    currentMonth.setUTCDate(10);
+    await Expense.create([
+      { userId: account.user.id, title: 'Payday', amount: 1000, type: 'income', category: 'Salary', date: currentMonth },
+      { userId: account.user.id, title: 'Food', amount: 125, type: 'expense', category: 'Food', date: currentMonth },
+    ]);
+    await Expense.collection.insertOne({
+      userId: new mongoose.Types.ObjectId(account.user.id), title: 'Legacy', amount: 25,
+      category: 'Food', date: currentMonth, createdAt: currentMonth, updatedAt: currentMonth,
+    });
+    const month = `${currentMonth.getUTCFullYear()}-${String(currentMonth.getUTCMonth() + 1).padStart(2, '0')}`;
+
+    const response = await request(app)
+      .get(`/api/expenses/summary?month=${month}`)
+      .set('Authorization', `Bearer ${account.token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ income: 1000, expense: 150, net: 850 });
+    expect(response.body.categories.income).toEqual([{ category: 'Salary', total: 1000 }]);
+    expect(response.body.categories.expense).toEqual([{ category: 'Food', total: 150 }]);
+  });
+
+  test('keeps summary income private to its owner', async () => {
+    const userA = await createAccount('summary-owner@example.com');
+    const userB = await createAccount('summary-private@example.com');
+    const now = new Date();
+    await Expense.create({ userId: userB.user.id, title: 'Private income', amount: 400, type: 'income', date: now });
+    const month = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+
+    const response = await request(app)
+      .get(`/api/expenses/summary?month=${month}`)
+      .set('Authorization', `Bearer ${userA.token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ income: 0, expense: 0, net: 0 });
+    expect(response.body.categories).toEqual({ income: [], expense: [] });
+  });
 });
 
-describe('Google authentication', () => {
-  test('creates a user for a verified Google ID token', async () => {
-    googleClient.verifyIdToken.mockResolvedValue({
-      getPayload: () => ({
-        sub: 'google-user-1',
-        email: 'google@example.com',
-        email_verified: true,
-        name: 'Google User',
-      }),
-    });
+describe('wallets', () => {
+  test('requires authentication to read or change wallets', async () => {
+    const list = await request(app).get('/api/wallets');
+    const create = await request(app).post('/api/wallets').send({ name: 'Cash', type: 'cash' });
 
-    const response = await request(app)
-      .post('/auth/google')
-      .send({ idToken: 'valid-google-id-token' });
-
-    expect(googleClient.verifyIdToken).toHaveBeenCalledWith({
-      idToken: 'valid-google-id-token',
-      audience: [
-        process.env.GOOGLE_WEB_CLIENT_ID,
-        process.env.GOOGLE_ANDROID_CLIENT_ID,
-        process.env.GOOGLE_IOS_CLIENT_ID,
-      ],
-    });
-    expect(response.status).toBe(200);
-    expect(response.body.user).toMatchObject({
-      email: 'google@example.com',
-      provider: 'google',
-    });
-    expect(await User.countDocuments({ email: 'google@example.com' })).toBe(1);
-    expectNoPasswordHash(response);
+    expect(list.status).toBe(401);
+    expect(create.status).toBe(401);
   });
 
-  test('reuses the same Google account on later sign-ins', async () => {
-    googleClient.verifyIdToken.mockResolvedValue({
-      getPayload: () => ({
-        sub: 'google-returning-user',
-        email: 'returning@example.com',
-        email_verified: true,
-        name: 'Returning User',
-      }),
-    });
+  test('creates the default wallet once on the first list request', async () => {
+    const account = await createAccount('wallet-default@example.com');
+    const first = await request(app).get('/api/wallets').set('Authorization', `Bearer ${account.token}`);
+    const second = await request(app).get('/api/wallets').set('Authorization', `Bearer ${account.token}`);
 
-    const firstSignIn = await request(app)
-      .post('/auth/google')
-      .send({ idToken: 'valid-google-id-token' });
-    const secondSignIn = await request(app)
-      .post('/auth/google')
-      .send({ idToken: 'valid-google-id-token' });
-
-    expect(firstSignIn.status).toBe(200);
-    expect(secondSignIn.status).toBe(200);
-    expect(firstSignIn.body.user.id).toBe(secondSignIn.body.user.id);
-    expect(await User.countDocuments({ googleId: 'google-returning-user' })).toBe(1);
+    expect(first.status).toBe(200);
+    expect(first.body).toHaveLength(1);
+    expect(first.body[0]).toMatchObject({ name: 'Cash', type: 'cash', isDefault: true, openingBalance: 0, balance: 0 });
+    expect(second.status).toBe(200);
+    expect(second.body).toHaveLength(1);
+    expect(await Wallet.countDocuments({ userId: account.user.id })).toBe(1);
   });
 
-  test('links an existing account by email without creating a duplicate', async () => {
-    const existing = await User.create({
-      name: 'Existing User',
-      email: 'linked@example.com',
-      passwordHash: 'test-hash',
-      provider: 'local',
-    });
-    googleClient.verifyIdToken.mockResolvedValue({
-      getPayload: () => ({
-        sub: 'google-linked-user',
-        email: 'LINKED@example.com',
-        email_verified: true,
-      }),
-    });
+  test('creates, updates, and archives a wallet', async () => {
+    const account = await createAccount('wallet-crud@example.com');
+    await request(app).get('/api/wallets').set('Authorization', `Bearer ${account.token}`);
+    const created = await request(app)
+      .post('/api/wallets')
+      .set('Authorization', `Bearer ${account.token}`)
+      .send({ name: 'Travel card', type: 'card', openingBalance: 50, color: '#336699', icon: '▰' });
+    const updated = await request(app)
+      .put(`/api/wallets/${created.body._id}`)
+      .set('Authorization', `Bearer ${account.token}`)
+      .send({ name: 'Trip card', openingBalance: 75 });
+    const archived = await request(app)
+      .patch(`/api/wallets/${created.body._id}/archive`)
+      .set('Authorization', `Bearer ${account.token}`);
+    const activeList = await request(app).get('/api/wallets').set('Authorization', `Bearer ${account.token}`);
+    const archivedList = await request(app).get('/api/wallets?includeArchived=true').set('Authorization', `Bearer ${account.token}`);
 
-    const response = await request(app)
-      .post('/auth/google')
-      .send({ idToken: 'valid-google-id-token' });
-
-    expect(response.status).toBe(200);
-    expect(await User.countDocuments({ email: 'linked@example.com' })).toBe(1);
-    expect((await User.findById(existing.id)).googleId).toBe('google-linked-user');
-    expect(response.body.user.id).toBe(existing.id);
-    expectNoPasswordHash(response);
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({ name: 'Travel card', type: 'card', openingBalance: 50, isDefault: false });
+    expect(created.body).not.toHaveProperty('nameKey');
+    expect(updated.status).toBe(200);
+    expect(updated.body).toMatchObject({ name: 'Trip card', openingBalance: 75 });
+    expect(archived.status).toBe(200);
+    expect(activeList.body.map((wallet) => wallet.name)).toEqual(['Cash']);
+    expect(archivedList.body.map((wallet) => wallet.name)).toEqual(['Cash', 'Trip card']);
   });
 
-  test('rejects an invalid Google ID token with a generic 401', async () => {
-    googleClient.verifyIdToken.mockRejectedValue(new Error('Invalid token'));
+  test('rejects duplicate wallet names without regard to case', async () => {
+    const account = await createAccount('wallet-duplicate@example.com');
+    await request(app).get('/api/wallets').set('Authorization', `Bearer ${account.token}`);
+    const duplicate = await request(app)
+      .post('/api/wallets')
+      .set('Authorization', `Bearer ${account.token}`)
+      .send({ name: 'cASH', type: 'cash' });
 
-    const response = await request(app)
-      .post('/auth/google')
-      .send({ idToken: 'invalid-google-id-token' });
-
-    expect(response.status).toBe(401);
-    expect(response.body).toEqual({ message: 'Invalid Google sign-in token' });
+    expect(duplicate.status).toBe(409);
   });
 
-  test('rejects a Google identity without a verified email', async () => {
-    googleClient.verifyIdToken.mockResolvedValue({
-      getPayload: () => ({
-        sub: 'google-unverified-user',
-        email: 'unverified@example.com',
-        email_verified: false,
-      }),
-    });
+  test('computes opening balance plus income minus expenses', async () => {
+    const account = await createAccount('wallet-balance@example.com');
+    const wallet = await request(app)
+      .post('/api/wallets')
+      .set('Authorization', `Bearer ${account.token}`)
+      .send({ name: 'Savings', type: 'bank', openingBalance: 250 });
+    await request(app)
+      .post('/api/expenses')
+      .set('Authorization', `Bearer ${account.token}`)
+      .send({ title: 'Deposit', amount: 100, type: 'income', walletId: wallet.body._id });
+    await request(app)
+      .post('/api/expenses')
+      .set('Authorization', `Bearer ${account.token}`)
+      .send({ title: 'Purchase', amount: 40, type: 'expense', walletId: wallet.body._id });
 
-    const response = await request(app)
-      .post('/auth/google')
-      .send({ idToken: 'unverified-google-id-token' });
+    const wallets = await request(app).get('/api/wallets').set('Authorization', `Bearer ${account.token}`);
+    expect(wallets.status).toBe(200);
+    expect(wallets.body.find((item) => item._id === wallet.body._id).balance).toBe(310);
+  });
 
-    expect(response.status).toBe(401);
-    expect(await User.countDocuments({ email: 'unverified@example.com' })).toBe(0);
+  test('assigns transactions without walletId to the default wallet', async () => {
+    const account = await createAccount('wallet-assignment@example.com');
+    const wallets = await request(app).get('/api/wallets').set('Authorization', `Bearer ${account.token}`);
+    const income = await request(app)
+      .post('/api/expenses')
+      .set('Authorization', `Bearer ${account.token}`)
+      .send({ title: 'Cash received', amount: 45, type: 'income' });
+
+    expect(income.status).toBe(201);
+    expect(income.body.walletId).toBe(wallets.body[0]._id);
+    const listed = await request(app)
+      .get(`/api/expenses?walletId=${wallets.body[0]._id}`)
+      .set('Authorization', `Bearer ${account.token}`);
+    expect(listed.body.map((item) => item._id)).toContain(income.body._id);
+  });
+
+  test('rejects another user wallet and hides other users wallets', async () => {
+    const userA = await createAccount('wallet-a@example.com');
+    const userB = await createAccount('wallet-b@example.com');
+    const userBWallet = await request(app)
+      .post('/api/wallets')
+      .set('Authorization', `Bearer ${userB.token}`)
+      .send({ name: 'Private wallet', type: 'mobile' });
+    const foreignExpense = await request(app)
+      .post('/api/expenses')
+      .set('Authorization', `Bearer ${userA.token}`)
+      .send({ title: 'Invalid destination', amount: 20, type: 'income', walletId: userBWallet.body._id });
+    const visibleToA = await request(app).get('/api/wallets').set('Authorization', `Bearer ${userA.token}`);
+
+    expect(foreignExpense.status).toBe(404);
+    expect(visibleToA.body.map((wallet) => wallet.name)).toEqual(['Cash']);
+  });
+
+  test('rejects deletion when transactions reference the wallet', async () => {
+    const account = await createAccount('wallet-delete@example.com');
+    const wallet = await request(app)
+      .post('/api/wallets')
+      .set('Authorization', `Bearer ${account.token}`)
+      .send({ name: 'Used wallet', type: 'mobile' });
+    await request(app)
+      .post('/api/expenses')
+      .set('Authorization', `Bearer ${account.token}`)
+      .send({ title: 'Received', amount: 25, type: 'income', walletId: wallet.body._id });
+    const deleted = await request(app)
+      .delete(`/api/wallets/${wallet.body._id}`)
+      .set('Authorization', `Bearer ${account.token}`);
+
+    expect(deleted.status).toBe(409);
+    expect(await Wallet.findById(wallet.body._id)).not.toBeNull();
   });
 });

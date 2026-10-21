@@ -4,13 +4,18 @@ const expenseSchema = new mongoose.Schema(
   {
     userId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
       required: true,
       index: true,
     },
     title: { type: String, required: true, trim: true },
     amount: { type: Number, required: true, min: 0.01 },
-    type: { type: String, enum: ['expense', 'income'], default: 'expense' },
+    type: {
+      type: String,
+      enum: ['expense', 'income'],
+      default: 'expense',
+      index: true,
+    },
+    walletId: { type: mongoose.Schema.Types.ObjectId, ref: 'Wallet', index: true },
     category: { type: String, default: 'General', trim: true },
     paymentMethod: { type: String, trim: true, default: '' },
     date: { type: Date, default: Date.now },

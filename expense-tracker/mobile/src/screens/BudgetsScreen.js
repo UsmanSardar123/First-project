@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createThemeColors, createThemedStyles, isDarkMode } from '../theme';
 import {
   ActivityIndicator,
   Pressable,
   ScrollView,
   StatusBar,
-  StyleSheet,
   Text,
   TextInput,
   View,
@@ -12,11 +12,11 @@ import {
 import { getBudgets, getExpenses, saveBudget } from '../api/expenseApi';
 import { currencySymbol, formatCurrency } from '../constants/currency';
 
-const COLORS = {
+const COLORS = createThemeColors({
   background: '#F6F8FB', white: '#FFFFFF', primary: '#16A36A',
   primaryLight: '#E5F7EE', text: '#172B24', secondary: '#7C8983',
   border: '#EDF0EE', red: '#E65B64', redLight: '#FCECEE',
-};
+});
 
 const normalizeCategory = (value) => String(value || '').trim().toLocaleLowerCase();
 const displayCategory = (value) => value.replace(/\b\w/g, (character) => character.toLocaleUpperCase());
@@ -137,7 +137,7 @@ export default function BudgetsScreen({ onBack, currency = 'PKR' }) {
 
   return (
     <View style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
+      <StatusBar barStyle={isDarkMode() ? 'light-content' : 'dark-content'} backgroundColor={COLORS.background} />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back to previous screen" hitSlop={8} style={({ pressed }) => [styles.backButton, pressed && styles.backPressed]}><Text style={styles.backText}>‹</Text></Pressable>
@@ -177,7 +177,7 @@ export default function BudgetsScreen({ onBack, currency = 'PKR' }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyles({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
   content: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 32 },
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },

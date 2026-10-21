@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
+import { createThemeColors, createThemedStyles, isDarkMode } from '../theme';
 import {
   ActivityIndicator,
   Pressable,
   ScrollView,
   StatusBar,
-  StyleSheet,
   Text,
   TextInput,
   View,
@@ -12,12 +12,13 @@ import {
 import { createExpense, getBudgets, getExpenses, updateExpense } from '../api/expenseApi';
 import { currencySymbol, formatCurrency } from '../constants/currency';
 import { CATEGORY_ICONS, EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '../constants/categories';
+import { getWallets } from '../api/walletsApi';
 
-const COLORS = {
+const COLORS = createThemeColors({
   background: '#F6F8FB', white: '#FFFFFF', primary: '#16A36A',
   primaryLight: '#E5F7EE', text: '#172B24', secondary: '#7C8983',
   border: '#EDF0EE', red: '#E65B64', redLight: '#FCECEE',
-};
+});
 
 function localDateString(date) {
   const year = date.getFullYear();
@@ -44,6 +45,10 @@ export default function AddTransactionScreen({
   const [loadingLedger, setLoadingLedger] = useState(true);
   const [ledgerError, setLedgerError] = useState('');
   const [budgetError, setBudgetError] = useState('');
+  const [wallets, setWallets] = useState([]);
+  const [walletId, setWalletId] = useState(transaction?.walletId || '');
+  const [walletLoading, setWalletLoading] = useState(true);
+  const [walletError, setWalletError] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -71,8 +76,18 @@ export default function AddTransactionScreen({
       .catch((loadError) => {
         if (active) setBudgetError(loadError.message || 'Could not load monthly budget warnings.');
       });
+    getWallets(true)
+      .then((items) => {
+        if (!Array.isArray(items)) throw new Error('Unexpected wallet data received.');
+        if (active) {
+          setWallets(items.filter((item) => !item.archived || item._id === transaction?.walletId));
+          setWalletId(transaction?.walletId || items.find((item) => item.isDefault)?._id || '');
+        }
+      })
+      .catch((loadError) => { if (active) setWalletError(loadError.message || 'Could not load wallets.'); })
+      .finally(() => { if (active) setWalletLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [transaction?.walletId]);
 
   async function submit() {
     setError('');
@@ -85,7 +100,7 @@ export default function AddTransactionScreen({
 
     setSaving(true);
     try {
-      const payload = { title: title.trim(), amount: numericAmount, type, category: category.trim(), date, notes: notes.trim() };
+      const payload = { title: title.trim(), amount: numericAmount, type, category: category.trim(), date, notes: notes.trim(), ...(walletId ? { walletId } : {}) };
       if (type === 'expense') {
         const items = await getExpenses();
         const totals = items.reduce((result, item) => {
@@ -148,7 +163,7 @@ export default function AddTransactionScreen({
 
   return (
     <View style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
+      <StatusBar barStyle={isDarkMode() ? 'light-content' : 'dark-content'} backgroundColor={COLORS.background} />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back to previous screen" hitSlop={8} style={({ pressed }) => [styles.backButton, pressed && styles.backPressed]}>
@@ -160,7 +175,7 @@ export default function AddTransactionScreen({
           </View>
         </View>
 
-        {!lockedType && !transaction ? (
+        {!lockedType ? (
           <View style={styles.typeRow} accessibilityRole="tablist">
             {['expense', 'income'].map((option) => {
               const selected = type === option;
@@ -211,6 +226,17 @@ export default function AddTransactionScreen({
               );
             })}
           </View>
+          <Text style={styles.label}>Wallet</Text>
+          {walletLoading ? <ActivityIndicator style={styles.walletLoader} color={accent} /> : walletError ? <Text accessibilityRole="alert" style={styles.error}>{walletError}</Text> : wallets.length ? (
+            <View style={styles.walletOptions}>
+              {wallets.map((wallet) => {
+                const selected = walletId === wallet._id;
+                return <Pressable key={wallet._id} onPress={() => setWalletId(wallet._id)} accessibilityRole="radio" accessibilityState={{ selected }} style={[styles.walletChip, selected && { backgroundColor: COLORS.primaryLight, borderColor: accent }]}>
+                  <Text style={styles.walletChipIcon}>{wallet.icon || '◉'}</Text><Text style={[styles.walletChipText, selected && { color: accent }]}>{wallet.name}</Text>
+                </Pressable>;
+              })}
+            </View>
+          ) : <Text style={styles.budgetHint}>No wallets found. The default wallet will be used.</Text>}
           {willExceedBudget ? (
             <View accessibilityRole="alert" style={styles.budgetWarning}>
               <Text style={styles.budgetWarningIcon}>⚠</Text>
@@ -243,7 +269,7 @@ export default function AddTransactionScreen({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyles({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
   content: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 32 },
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 22 },
@@ -272,6 +298,11 @@ const styles = StyleSheet.create({
   categoryChip: { minHeight: 38, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#FCFDFC', paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   categoryChipIcon: { fontSize: 13 },
   categoryChipText: { color: COLORS.secondary, fontSize: 12, fontWeight: '600' },
+  walletOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  walletChip: { minHeight: 37, borderRadius: 11, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.white, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  walletChipIcon: { fontSize: 14 },
+  walletChipText: { color: COLORS.secondary, fontSize: 11, fontWeight: '700' },
+  walletLoader: { alignSelf: 'flex-start', marginVertical: 8 },
   optional: { color: COLORS.secondary, fontWeight: '400' },
   input: { minHeight: 48, borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, paddingHorizontal: 13, color: COLORS.text, fontSize: 14, backgroundColor: '#FCFDFC' },
   notesInput: { minHeight: 92, paddingTop: 12 },

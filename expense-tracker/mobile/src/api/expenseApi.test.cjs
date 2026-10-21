@@ -12,6 +12,6 @@ test('EXPO_PUBLIC_API_URL targets the Android emulator expense endpoint', () => 
   assert.ok(setting, 'EXPO_PUBLIC_API_URL must be configured');
   assert.equal(
     new URL(setting.slice('EXPO_PUBLIC_API_URL='.length)).toString(),
-    'http://10.0.2.2:5000/api/expenses',
+    'http://10.0.2.2:5001/api/expenses',
   );
 });

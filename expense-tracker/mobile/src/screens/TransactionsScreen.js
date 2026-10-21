@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createThemeColors, createThemedStyles, isDarkMode } from '../theme';
 
 import {
   ActivityIndicator,
@@ -7,7 +8,6 @@ import {
   Pressable,
   Share,
   StatusBar,
-  StyleSheet,
   Text,
   TextInput,
   View,
@@ -15,11 +15,11 @@ import {
 import { deleteExpense, getExpenses } from '../api/expenseApi';
 import { formatCurrency } from '../constants/currency';
 
-const COLORS = {
+const COLORS = createThemeColors({
   background: '#F6F8FB', white: '#FFFFFF', primary: '#16A36A',
   primaryLight: '#E5F7EE', text: '#172B24', secondary: '#7C8983',
   border: '#EDF0EE', red: '#E65B64', redLight: '#FCECEE',
-};
+});
 const FILTERS = [
   { label: 'All', value: 'all' },
   { label: 'Expenses', value: 'expense' },
@@ -73,7 +73,7 @@ function TransactionRow({ item, onPress, currency }) {
   );
 }
 
-export default function TransactionsScreen({ onBack, onEdit, currency = 'PKR' }) {
+export default function TransactionsScreen({ onBack, onEdit, currency = 'PKR', initialWalletId }) {
   const [transactions, setTransactions] = useState([]);
   const [filter, setFilter] = useState('all');
   const [period, setPeriod] = useState('all');
@@ -94,7 +94,7 @@ export default function TransactionsScreen({ onBack, onEdit, currency = 'PKR' })
       setLoading(true);
       setError('');
       try {
-        const result = await getExpenses();
+        const result = await getExpenses(undefined, initialWalletId);
         if (!active) return;
         if (!Array.isArray(result)) throw new Error('Unexpected transaction data received');
         setTransactions(result);
@@ -111,7 +111,7 @@ export default function TransactionsScreen({ onBack, onEdit, currency = 'PKR' })
     return () => {
       active = false;
     };
-  }, []);
+  }, [initialWalletId]);
 
   async function removeSelected() {
     if (!selected?._id) return;
@@ -173,7 +173,7 @@ export default function TransactionsScreen({ onBack, onEdit, currency = 'PKR' })
 
   return (
     <View style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
+      <StatusBar barStyle={isDarkMode() ? 'light-content' : 'dark-content'} backgroundColor={COLORS.background} />
       <View style={styles.content}>
         <View style={styles.header}>
           <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back to previous screen" hitSlop={8} style={({ pressed }) => [styles.backButton, pressed && styles.backPressed]}>
@@ -318,7 +318,7 @@ function DetailLine({ label, value }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyles({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
   content: { flex: 1, paddingHorizontal: 20, paddingTop: 20 },
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },

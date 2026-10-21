@@ -23,12 +23,8 @@ export const EXPENSE_CATEGORIES = [
 
 export const INCOME_CATEGORIES = [
   'Salary',
-  'Business',
   'Freelance',
-  'Investment',
   'Gift',
-  'Rental Income',
-  'Refund',
   'Other',
 ];
 

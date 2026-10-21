@@ -1,26 +1,26 @@
-import { getToken } from '../services/tokenStorage';
+import { getSession } from '../services/tokenStorage';
 
-let onUnauthorized = null;
+let unauthorizedHandler = null;
 
-export function registerOnUnauthorized(callback) {
-  onUnauthorized = callback;
+export function setUnauthorizedHandler(handler) {
+  unauthorizedHandler = handler;
 }
 
 export async function request(endpoint, options = {}) {
-  const token = await getToken();
-  const headers = { ...options.headers };
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
+  const { auth = true, ...fetchOptions } = options;
+  const headers = { ...fetchOptions.headers };
+  if (auth) {
+    const session = await getSession();
+    if (session?.token) headers.Authorization = `Bearer ${session.token}`;
   }
 
-  const response = await fetch(endpoint, { ...options, headers });
+  const response = await fetch(endpoint, { ...fetchOptions, headers });
   const data = await response.json().catch(() => ({}));
 
-  if (response.status === 401 && onUnauthorized) {
-    await onUnauthorized();
-  }
-
   if (!response.ok) {
+    if (response.status === 401 && auth && unauthorizedHandler) {
+      await unauthorizedHandler();
+    }
     const error = new Error(
       data.message || `Request failed (${response.status}) at ${endpoint}`
     );
