@@ -14,6 +14,7 @@ const Budget = require('./models/Budget');
 const expenseRoutes = require('./routes/expenseRoutes');
 const walletRoutes = require('./routes/walletRoutes');
 const authRoutes = require('./routes/authRoutes');
+const billRoutes = require('./routes/billRoutes');
 const authenticate = require('./middleware/auth');
 
 const app = express();
@@ -71,6 +72,8 @@ app.use('/api/expenses', authenticate);
 app.use('/api/expenses', expenseRoutes);
 app.use('/api/wallets', authenticate);
 app.use('/api/wallets', walletRoutes);
+app.use('/api/bills', authenticate);
+app.use('/api/bills', billRoutes);
 
 // Get all budgets
 app.get('/api/budgets', async (req, res) => {
@@ -271,6 +274,13 @@ app.delete('/api/expenses/:id', async (req, res) => {
       message: 'Failed to delete expense',
     });
   }
+});
+
+app.use((error, req, res, next) => {
+  if (res.headersSent) return next(error);
+  if (error.name === 'ValidationError') return res.status(400).json({ message: error.message });
+  console.error('API error:', error.message);
+  return res.status(500).json({ message: 'The request could not be completed' });
 });
 
 // Return a useful JSON error instead of Express's default HTML 404 page.
